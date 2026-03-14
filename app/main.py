@@ -21,7 +21,7 @@ app = FastAPI(
     description=(
         "Vector geospatial layers with boundary-based spatial analysis "
         "and a natural language AI agent interface. "
-        "Data sourced from Natural Earth 10m."
+        "Data sourced from Natural Earth 10m and OpenStreetMap."
     ),
     version="1.0.0",
 )
@@ -39,12 +39,13 @@ app.add_middleware(
 
 # ---------------------------------------------------------------------------
 # Routers
+# Prefixes are defined inside each router — do not add them here again.
 # ---------------------------------------------------------------------------
 
-app.include_router(boundaries.router, prefix="/boundaries", tags=["Boundaries"])
-app.include_router(layers.router,     prefix="/layers",     tags=["Layers"])
-app.include_router(statistics.router, prefix="/statistics", tags=["Statistics"])
-app.include_router(agent.router,      prefix="/agent",      tags=["Agent"])
+app.include_router(boundaries.router)
+app.include_router(layers.router)
+app.include_router(statistics.router)
+app.include_router(agent.router)
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -53,7 +54,8 @@ app.include_router(agent.router,      prefix="/agent",      tags=["Agent"])
 @app.get("/", tags=["Health"])
 def root():
     return {
-        "status": "ok",
+        "status":  "ok",
         "message": "Geo Services API is running",
-        "docs": "/docs",
+        "docs":    "/docs",
+        "version": "1.0.0",
     }

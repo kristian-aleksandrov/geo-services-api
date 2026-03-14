@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Claude" version="21.0.0">
+  <diagram name="Geo Services API Architecture" id="geo-services-api">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- TITLE -->
+        <mxCell id="title" value="Geo Services API — Request Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="30" width="600" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== CLIENT ===== -->
+        <mxCell id="client_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="100" y="100" width="1200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="client_label" value="🌐  CLIENT — Leaflet.js Frontend" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="100" width="400" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="client_sub" value="HTTP GET/POST requests  |  Renders GeoJSON layers  |  Displays agent responses on map" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="132" width="700" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow client to routers -->
+        <mxCell id="arr1" value="HTTP Request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;" edge="1" parent="1" source="client_box" target="routers_group">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== FASTAPI CONTAINER ===== -->
+        <mxCell id="fastapi_label" value="⚙️  FASTAPI APPLICATION — Azure Container Apps" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#1e4d78;" vertex="1" parent="1">
+          <mxGeometry x="100" y="210" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===== ROUTERS GROUP ===== -->
+        <mxCell id="routers_group" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="100" y="240" width="1200" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="routers_label" value="ROUTERS  —  Entry points. Read params, call repository, return response." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=2;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="115" y="244" width="700" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- boundaries router -->
+        <mxCell id="r_boundaries" value="&lt;b&gt;/boundaries&lt;/b&gt;&lt;br&gt;GET /countries&lt;br&gt;GET /countries/{code}&lt;br&gt;GET /provinces&lt;br&gt;GET /provinces/{code}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="115" y="270" width="240" height="88" as="geometry" />
+        </mxCell>
+
+        <!-- layers router -->
+        <mxCell id="r_layers" value="&lt;b&gt;/layers&lt;/b&gt;&lt;br&gt;GET /roads?boundary=KEN&lt;br&gt;GET /rivers?boundary=KEN&lt;br&gt;GET /places?boundary=BGR&lt;br&gt;GET /pois?boundary=BG-02&amp;amp;type=hospital" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="370" y="270" width="240" height="88" as="geometry" />
+        </mxCell>
+
+        <!-- statistics router -->
+        <mxCell id="r_statistics" value="&lt;b&gt;/statistics&lt;/b&gt;&lt;br&gt;GET /pois?boundary=BG-02&lt;br&gt;GET /roads?boundary=BGR&lt;br&gt;GET /places?boundary=KEN&lt;br&gt;GET /buildings?boundary=BG-02" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="625" y="270" width="240" height="88" as="geometry" />
+        </mxCell>
+
+        <!-- agent router -->
+        <mxCell id="r_agent" value="&lt;b&gt;/agent/chat&lt;/b&gt;&lt;br&gt;POST — natural language query&lt;br&gt;→ Azure OpenAI GPT-4o&lt;br&gt;→ tool calling loop&lt;br&gt;→ Agent-to-Frontend protocol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="880" y="270" width="240" height="88" as="geometry" />
+        </mxCell>
+
+        <!-- schemas note -->
+        <mxCell id="schemas_note" value="📋 Pydantic schemas validate all responses (schemas.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="290" width="145" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows routers to repository -->
+        <mxCell id="arr2a" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="r_boundaries" target="repo_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arr2b" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="r_layers" target="repo_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arr2c" value="" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="r_statistics" target="repo_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow agent to OpenAI -->
+        <mxCell id="arr_agent_ai" value="tool calls" style="edgeStyle=orthogonalEdgeStyle;dashed=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="r_agent" target="openai_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== REPOSITORY ===== -->
+        <mxCell id="repo_box" value="&lt;b&gt;REPOSITORY LAYER&lt;/b&gt; — geo_repository.py&lt;br&gt;BoundaryRepository  |  LayerRepository  |  StatisticsRepository&lt;br&gt;All PostGIS spatial queries live here. Routers never write SQL." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f0f0;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="430" width="750" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow repo to DB session -->
+        <mxCell id="arr3" value="SQLAlchemy Session" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;" edge="1" parent="1" source="repo_box" target="db_session_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== DB SESSION ===== -->
+        <mxCell id="db_session_box" value="&lt;b&gt;DATABASE SESSION&lt;/b&gt; — database.py&lt;br&gt;get_db() opens a connection per request via Depends()&lt;br&gt;Closes automatically when request completes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f0f0;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="100" y="570" width="750" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow DB session to PostGIS -->
+        <mxCell id="arr4" value="psycopg2 / SQL" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;" edge="1" parent="1" source="db_session_box" target="postgis_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== POSTGIS DATABASE ===== -->
+        <mxCell id="postgis_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="100" y="710" width="750" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="postgis_title" value="🗄️  Azure Database for PostgreSQL 16 + PostGIS 3.4" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="115" y="714" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- table columns inside DB box -->
+        <!-- left col -->
+        <mxCell id="t1" value="geo.countries — 258 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="748" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="geo.provinces — 4,596 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="772" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="geo.roads — 56,600 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="796" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="geo.rivers — 1,473 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="820" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="geo.railroads — 25,413 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="115" y="844" width="280" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- right col -->
+        <mxCell id="t6" value="geo.places — 7,342 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="430" y="748" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t7" value="geo.protected_areas — 61 records" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="430" y="772" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t8" value="geo.buildings — OSM Bulgaria" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="430" y="796" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t9" value="geo.pois — OSM Bulgaria" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="430" y="820" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="t10" value="GIST spatial indexes + B-tree attribute indexes" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=12;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="430" y="844" width="380" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ===== AZURE OPENAI ===== -->
+        <mxCell id="openai_box" value="&lt;b&gt;Azure OpenAI&lt;/b&gt;&lt;br&gt;GPT-4o — function/tool calling&lt;br&gt;Decides which API tools to call&lt;br&gt;Returns structured JSON commands" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="980" y="430" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow OpenAI back to agent -->
+        <mxCell id="arr_ai_back" value="answer + commands" style="edgeStyle=orthogonalEdgeStyle;dashed=1;fontSize=11;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="openai_box" target="r_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===== AGENT PROTOCOL ===== -->
+        <mxCell id="protocol_box" value="&lt;b&gt;Agent-to-Frontend Protocol&lt;/b&gt; — agent_protocol.md&lt;br&gt;Structured JSON commands → Leaflet map operations&lt;br&gt;zoom_to  |  add_layer  |  show_stats  |  highlight_boundary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="570" width="320" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow agent router to protocol -->
+        <mxCell id="arr_protocol" value="" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="r_agent" target="protocol_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow protocol to client -->
+        <mxCell id="arr_response" value="HTTP Response" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="protocol_box" target="client_box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1350" y="605" />
+              <mxPoint x="1350" y="135" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- DATA SOURCES -->
+        <mxCell id="ds_title" value="Data Sources" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="930" width="200" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ds1" value="🌍  Natural Earth 10m&lt;br&gt;Public domain — global vectors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="100" y="960" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ds2" value="🗺️  Geofabrik OSM Bulgaria&lt;br&gt;ODbL — buildings + POIs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="960" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ds3" value="🌲  Global Forest Watch API&lt;br&gt;Planned extension" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="960" width="220" height="50" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

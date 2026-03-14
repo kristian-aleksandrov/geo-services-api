@@ -222,7 +222,10 @@ class BoundaryAreaResponse(BaseModel):
 class AgentChatRequest(BaseModel):
     """
     Request body for POST /agent/chat.
-    The message is a natural language query from the user.
+
+    Frontend library, version, and capabilities are NOT part of the request.
+    They are deployment-time constants read from environment variables:
+        FRONTEND_LIBRARY, FRONTEND_VERSION, FRONTEND_CAPABILITIES
 
     Example:
         {"message": "How many hospitals are in Burgas province?"}
