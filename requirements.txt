@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+geopandas
+sqlalchemy
+psycopg2-binary
+python-dotenv
+requests
+geoalchemy2
+shapely
+openai
+pydantic
