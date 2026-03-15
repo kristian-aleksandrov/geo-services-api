@@ -470,11 +470,13 @@ def execute_tool(name: str, args: dict) -> dict:
     from sqlalchemy import create_engine, text as sa_text
     from sqlalchemy.orm import sessionmaker
 
+    _host = os.getenv('DB_HOST', '')
+    _ssl  = {"sslmode": "require"} if "postgres.database.azure.com" in _host else {}
     db_url = (
         f"postgresql+psycopg2://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-        f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+        f"@{_host}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
     )
-    engine = create_engine(db_url)
+    engine = create_engine(db_url, connect_args=_ssl)
     db = sessionmaker(bind=engine)()
 
     try:
@@ -650,11 +652,15 @@ def execute_tool(name: str, args: dict) -> dict:
             ft          = args.get("filter_type")
             tbl         = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
 
-            # Map layer name to geo table
-            layer_table = {
+            # Strict whitelist — never use raw LLM input as a table name.
+            # The .get(layer, layer) fallback was a SQL injection risk.
+            LAYER_WHITELIST = {
                 "roads": "roads", "rivers": "rivers", "railroads": "railroads",
                 "places": "places", "buildings": "buildings", "pois": "pois"
-            }.get(layer, layer)
+            }
+            if layer not in LAYER_WHITELIST:
+                raise ValueError(f"Invalid layer '{layer}'. Must be one of: {list(LAYER_WHITELIST.keys())}")
+            layer_table = LAYER_WHITELIST[layer]
 
             # Count features in boundary
             type_col = "fclass" if layer == "pois" else "type"
