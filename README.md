@@ -39,7 +39,7 @@ The AI agent endpoint accepts natural language queries, autonomously calls the a
 
 See `docs/agent_protocol.md` for the full protocol specification.
 See `docs/database_justification.md` for the PostGIS selection rationale.
-See `diagrams/architecture_final.drawio` for the full architecture diagram.
+See `diagrams/architecture.pdf` for the full architecture diagram.
 
 ---
 
