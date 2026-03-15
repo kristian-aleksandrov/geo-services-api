@@ -1,21 +1,39 @@
 # Geo Services API
 
-A geospatial REST API serving vector layers with boundary-based spatial analysis and a natural language AI agent interface. Built with FastAPI, PostGIS, and Azure OpenAI as part of a technical assessment for the World Bank Group Senior Technical Lead — Geospatial Solutions role.
+A geospatial REST API for Bulgaria providing boundary-based spatial analysis and a natural language AI agent interface. Built with FastAPI, PostGIS, and Azure OpenAI as a technical assessment for the World Bank Group Senior Technical Lead — Geospatial Solutions role.
+
+## Live Demo
+
+| | |
+|---|---|
+| 🗺️ **Map + Chat** | https://geo-services-api.onrender.com/map |
+| 📖 **API Docs** | https://geo-services-api.onrender.com/docs |
+
+> Note: The app runs on Render free tier and may take 30-60 seconds to wake up after inactivity.
 
 ---
 
 ## Architecture
 
-The API is structured in four layers:
+```
+Leaflet Frontend (served by FastAPI at /map)
+        ↓ HTTP
+Render Web Service — FastAPI (Docker)
+    ├── /boundaries  → countries, provinces, municipalities
+    ├── /layers      → roads, rivers, places, buildings, pois
+    ├── /statistics  → spatial aggregations via PostGIS
+    └── /agent/chat  → Azure OpenAI GPT-4o (tool calling)
+        ↓ SQLAlchemy
+Repository Layer (geo_repository.py)
+        ↓
+Azure Database for PostgreSQL 16 + PostGIS 3.4
+```
 
-- **Client** — Leaflet.js frontend consuming API endpoints and agent protocol commands
-- **Azure Container Apps** — FastAPI application running in a Docker container, auto-scales to zero
-- **Repository layer** — abstracts all PostGIS spatial queries behind a clean interface
-- **Azure Database for PostgreSQL + PostGIS** — spatial database with GIST indexes on all geometry columns
+The AI agent endpoint accepts natural language queries, autonomously calls the appropriate API tools, and returns both a human-readable answer and structured map commands to the Leaflet frontend via the Agent-to-Frontend protocol.
 
-The AI agent endpoint (`/agent/chat`) sends natural language queries to Azure OpenAI GPT-4o, which autonomously decides which API tools to call, retrieves spatial data, and returns structured commands to the Leaflet frontend via the Agent-to-Frontend protocol.
-
-See `diagrams/architecture.png` for the full architecture diagram.
+See `docs/agent_protocol.md` for the full protocol specification.
+See `docs/database_justification.md` for the PostGIS selection rationale.
+See `diagrams/api_architecture.drawio` for the full architecture diagram.
 
 ---
 
@@ -26,9 +44,11 @@ See `diagrams/architecture.png` for the full architecture diagram.
 | API framework | FastAPI |
 | Database | PostgreSQL 16 + PostGIS 3.4 |
 | Cloud platform | Azure Container Apps + Azure Database for PostgreSQL |
-| AI agent | Azure OpenAI GPT-4o (function calling) |
+| AI agent | Azure OpenAI GPT-4o (function/tool calling) |
 | Data loading | GeoPandas, GeoAlchemy2, SQLAlchemy |
-| Runtime | Python 3.11+ |
+| Frontend | Leaflet.js |
+| Container | Docker |
+| Runtime | Python 3.11 |
 
 ---
 
@@ -47,40 +67,44 @@ git clone https://github.com/your-username/geo-services-api.git
 cd geo-services-api
 ```
 
-### 2. Set up environment
+### 2. Set up Python environment
 
 ```bash
 python -m venv venv
 venv\Scripts\activate        # Windows
 source venv/bin/activate     # Mac/Linux
-
 pip install -r requirements.txt
 ```
 
 ### 3. Configure environment variables
 
-Copy `.env.example` to `.env` and fill in your values:
-
 ```bash
 cp .env.example .env
 ```
 
-```
+Edit `.env` with your values:
+
+```bash
 DB_HOST=localhost
 DB_PORT=5433
 DB_NAME=geo_services
 DB_USER=postgres
-DB_PASSWORD=your_password_here
-AZURE_OPENAI_API_KEY=your_key_here
-AZURE_OPENAI_ENDPOINT=your_endpoint_here
+DB_PASSWORD=your_password
+
+AZURE_OPENAI_API_KEY=your_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
+
+FRONTEND_LIBRARY=leaflet
+FRONTEND_VERSION=1.9
+FRONTEND_CAPABILITIES=zoom_to,add_layer,remove_layer,highlight_boundary,show_stat,show_chart,clear_map
 ```
 
-### 4. Start PostGIS (local Docker)
+### 4. Start PostGIS
 
 ```bash
 docker run --name postgis-geo \
-  -e POSTGRES_PASSWORD=your_password_here \
+  -e POSTGRES_PASSWORD=your_password \
   -e POSTGRES_DB=geo_services \
   -p 5433:5432 \
   -d postgis/postgis:16-3.4
@@ -88,11 +112,16 @@ docker run --name postgis-geo \
 
 ### 5. Load data
 
-Downloads Natural Earth 10m GeoPackage (~500MB) and Geofabrik Bulgaria OSM data (~50MB), loads all layers into PostGIS and creates spatial indexes:
+Downloads all datasets and loads them into PostGIS:
 
 ```bash
-python scripts/load_natural_earth.py
+python scripts/load_data.py
 ```
+
+Downloads automatically:
+- World Bank Official Boundaries Admin 1 and Admin 2
+- Natural Earth 10m GeoPackage
+- Geofabrik OpenStreetMap Bulgaria
 
 ### 6. Run the API
 
@@ -100,8 +129,59 @@ python scripts/load_natural_earth.py
 uvicorn app.main:app --reload
 ```
 
-API is available at `http://localhost:8000`
-Interactive docs at `http://localhost:8000/docs`
+- API: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+
+### 7. Open the frontend
+
+Open `frontend/index.html` in your browser. Make sure the API is running first.
+
+---
+
+## Data Sources
+
+| Dataset | Source | Coverage | License |
+|---|---|---|---|
+| Country boundaries | Natural Earth 10m | Global | Public domain |
+| Province boundaries (Admin 1) | World Bank Official Boundaries | Global | World Bank |
+| Municipality boundaries (Admin 2) | World Bank Official Boundaries | Global | World Bank |
+| Roads, rivers, railroads, places | Natural Earth 10m | Global | Public domain |
+| Buildings | OpenStreetMap via Geofabrik | Bulgaria | ODbL |
+| Points of interest | OpenStreetMap via Geofabrik | Bulgaria | ODbL |
+
+Using World Bank Official Boundaries for Admin 1 and Admin 2 ensures the API uses the same authoritative boundary definitions as World Bank operational systems.
+
+---
+
+## Database Schema
+
+All tables live in the `geo` schema.
+
+| Table | Source | Description |
+|---|---|---|
+| `geo.countries` | Natural Earth | Country boundaries with population and economy data |
+| `geo.provinces` | World Bank Admin 1 | Province/oblast boundaries |
+| `geo.municipalities` | World Bank Admin 2 | Municipality boundaries |
+| `geo.roads` | Natural Earth 10m | Global road network |
+| `geo.rivers` | Natural Earth 10m | Rivers and lake centerlines |
+| `geo.railroads` | Natural Earth 10m | Global railroad network |
+| `geo.places` | Natural Earth 10m | Populated places |
+| `geo.buildings` | OSM Bulgaria | Building footprints |
+| `geo.pois` | OSM Bulgaria | Points of interest (hospitals, schools, etc.) |
+
+### Boundary code formats
+
+| Level | Format | Example |
+|---|---|---|
+| Country | ISO 3166-1 alpha-3 | `BGR` |
+| Province | World Bank Admin 1 | `BGR002` (Burgas oblast) |
+| Municipality | World Bank Admin 2 | `BGR002002` (Burgas municipality) |
+
+### Spatial queries
+
+All layer queries use PostGIS `ST_Intersects` joins at query time. Features are not pre-assigned boundary codes, which correctly handles cross-boundary features.
+
+Road length calculations use `ST_Intersection` to clip geometries to the exact boundary extent before measuring — avoiding the overcounting that occurs when summing pre-calculated lengths for cross-boundary roads.
 
 ---
 
@@ -109,223 +189,123 @@ Interactive docs at `http://localhost:8000/docs`
 
 ### Boundaries
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/boundaries?level=country` | All country boundaries |
-| GET | `/boundaries?level=province` | All province/state boundaries |
-| GET | `/boundaries/{code}` | Single boundary by ISO code |
+```
+GET /boundaries/countries                         All countries
+GET /boundaries/countries/{code}                  Single country by ISO code
+GET /boundaries/provinces?country_code=BGR        All Bulgarian provinces
+GET /boundaries/provinces?name=Burgas             Search by name
+GET /boundaries/provinces/{code}                  Single province by WB code
+GET /boundaries/municipalities?country_code=BGR   All Bulgarian municipalities
+GET /boundaries/municipalities?name=Burgas        Search by name
+GET /boundaries/municipalities/{code}             Single municipality by WB code
+```
 
 ### Layers
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/layers/roads?boundary=KEN` | Roads within a boundary |
-| GET | `/layers/rivers?boundary=KEN` | Rivers within a boundary |
-| GET | `/layers/railroads?boundary=KEN` | Railroads within a boundary |
-| GET | `/layers/places?boundary=KEN` | Populated places within a boundary |
-| GET | `/layers/buildings?boundary=BGR` | Buildings within a boundary (Bulgaria OSM) |
-| GET | `/layers/pois?boundary=BGR` | Points of interest within a boundary (Bulgaria OSM) |
-| GET | `/layers/protected_areas?boundary=KEN` | Protected areas within a boundary |
+```
+GET /layers/roads?boundary=BGR&boundary_level=country
+GET /layers/rivers?boundary=BGR002&boundary_level=province
+GET /layers/railroads?boundary=BGR
+GET /layers/places?boundary=BGR&min_population=50000
+GET /layers/buildings?boundary=BGR002002&boundary_level=municipality
+GET /layers/pois?boundary=BGR002&boundary_level=province&poi_type=hospital
+```
+
+All layer endpoints return GeoJSON FeatureCollections compatible with `L.geoJSON()`.
 
 ### Statistics
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/statistics/roads?boundary=KEN` | Total road length by type |
-| GET | `/statistics/places?boundary=KEN` | Population statistics |
-| GET | `/statistics/pois?boundary=BGR&type=hospital` | POI counts by type |
-| GET | `/statistics/buildings?boundary=BGR` | Building counts by type |
+```
+GET /statistics/pois?boundary=BGR002&boundary_level=province&poi_type=hospital
+GET /statistics/buildings?boundary=BGR002002&boundary_level=municipality
+GET /statistics/roads?boundary=BGR&boundary_level=country
+GET /statistics/places?boundary=BGR&boundary_level=country
+GET /statistics/area?boundary=BGR002&boundary_level=province
+```
 
 ### AI Agent
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/agent/chat` | Natural language query interface |
+```
+POST /agent/chat
+Content-Type: application/json
 
-Example request:
+{"message": "How many hospitals are in Burgas province?"}
+```
+
+Returns a natural language answer plus structured Leaflet map commands. See `docs/agent_protocol.md` for the full protocol specification.
+
+---
+
+## AI Agent
+
+The agent uses Azure OpenAI GPT-4o with function/tool calling. It autonomously decides which tools to call, retrieves spatial data from PostGIS, and returns both a human-readable answer and structured map commands.
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `get_boundary_by_name` | Look up a boundary code by place name |
+| `get_boundary` | Retrieve a boundary by code |
+| `count_pois` | Count POIs by type within a boundary |
+| `count_buildings` | Count buildings within a boundary |
+| `road_statistics` | Road length by type using ST_Intersection |
+| `population_statistics` | Population summary for an area |
+| `boundary_area` | Area in km² using ST_Area(::geography) |
+| `get_layer` | Retrieve a vector layer for map display |
+
+### Example queries
+
+- "How many hospitals are in Burgas province?"
+- "How many buildings are in Veliko Tarnovo municipality?"
+- "Show me the roads in Bulgaria"
+- "What is the area of Sofia province?"
+- "What is the largest city in Bulgaria?"
+
+---
+
+## Agent-to-Frontend Protocol
+
+The agent returns structured JSON commands alongside the natural language answer. The frontend executes these commands in order to update the map.
+
 ```json
 {
-  "message": "How many hospitals are in Burgas province?"
+  "answer": "There are 29 hospitals in Burgas province.",
+  "commands": [
+    {"action": "zoom_to",          "params": {"boundary_code": "BGR002", "boundary_level": "province"}},
+    {"action": "highlight_boundary","params": {"boundary_code": "BGR002", "boundary_level": "province"}},
+    {"action": "add_layer",        "params": {"layer": "pois", "boundary_code": "BGR002", "filter": {"poi_type": "hospital"}}},
+    {"action": "show_stat",        "params": {"label": "Hospitals in Burgas", "value": 29, "unit": "facilities"}}
+  ],
+  "tools_used": ["get_boundary_by_name", "count_pois"]
 }
 ```
 
-The agent autonomously decides which tools to call, retrieves the data, and returns both a natural language answer and structured Leaflet map commands.
-
-See `docs/agent_protocol.md` for the full Agent-to-Frontend protocol specification.
+The protocol is frontend-agnostic. Style hints are translated to library-specific properties at response time via the Style Adapter Registry. See `docs/agent_protocol.md` for the complete specification.
 
 ---
 
-## Database Schema
+## Deployment
 
-All tables live in the `geo` schema in PostgreSQL.
+### Docker
 
-### Tables
-
-| Table | Source | Records | Description |
-|---|---|---|---|
-| `geo.countries` | Natural Earth 10m | 258 | Country boundaries (Admin 0) |
-| `geo.provinces` | Natural Earth 10m | 4,596 | Province/state boundaries (Admin 1) |
-| `geo.roads` | Natural Earth 10m | 56,600 | Global road network |
-| `geo.rivers` | Natural Earth 10m | 1,473 | Rivers and lake centerlines |
-| `geo.railroads` | Natural Earth 10m | 25,413 | Global railroad network |
-| `geo.places` | Natural Earth 10m | 7,342 | Populated places |
-| `geo.protected_areas` | Natural Earth 10m | 61 | Parks and protected lands |
-| `geo.buildings` | OSM via Geofabrik | — | Building footprints (Bulgaria) |
-| `geo.pois` | OSM via Geofabrik | — | Points of interest (Bulgaria) |
-
-### Spatial queries
-
-All layer queries use PostGIS spatial joins rather than pre-assigned boundary codes. This correctly handles cross-boundary features (e.g. a river crossing multiple countries) and keeps the schema clean:
-
-```sql
-SELECT r.* FROM geo.roads r
-JOIN geo.countries c ON ST_Intersects(r.geometry, c.geometry)
-WHERE c.code = 'KEN'
+```bash
+docker build -t geo-services-api .
+docker run -p 8000:8000 --env-file .env geo-services-api
 ```
 
-### Indexes
+### Azure Container Apps
 
-Every geometry column has a GIST spatial index. Commonly filtered columns have B-tree attribute indexes. This combination makes spatial queries fast even on large datasets.
+```bash
+# Build and push to Azure Container Registry
+az acr build --registry yourregistry --image geo-services-api .
 
----
-
-## Data Sources
-
-| Dataset | Source | License |
-|---|---|---|
-| Natural Earth 10m vectors | [naturalearthdata.com](https://www.naturalearthdata.com) | Public domain |
-| OSM Bulgaria buildings | [Geofabrik](https://download.geofabrik.de/europe/bulgaria.html) | ODbL |
-| OSM Bulgaria POIs | [Geofabrik](https://download.geofabrik.de/europe/bulgaria.html) | ODbL |
-
----
-
-## Data Layer Column Mapping
-
-All layers are loaded from the Natural Earth 10m GeoPackage and Geofabrik OSM extracts. Only relevant columns are retained and renamed for clean, consistent API responses.
-
-### geo.countries
-Source: `ne_10m_admin_0_countries`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `NAME` | `name` | Common country name |
-| `FORMAL_EN` | `formal_name` | Full formal name |
-| `ADM0_ISO` | `code` | ISO 3166-1 alpha-3 code (KEN, GBR) |
-| `POP_EST` | `pop_est` | Estimated population |
-| `POP_YEAR` | `pop_year` | Year of population estimate |
-| `ECONOMY` | `economy` | World Bank economy classification |
-| `INCOME_GRP` | `income_group` | World Bank income group |
-| `CONTINENT` | `continent` | Continent name |
-| `REGION_WB` | `region_wb` | World Bank regional classification |
-| `TYPE` | `type` | Country type |
-| `SOVEREIGNT` | `sovereignt` | Sovereign state name |
-
-### geo.provinces
-Source: `ne_10m_admin_1_states_provinces`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `name` | `name` | Province/state name |
-| `iso_3166_2` | `code` | ISO 3166-2 code (BG-02) |
-| `adm0_a3` | `country_code` | Parent country ISO code |
-| `type` | `type` | Administrative unit type |
-| `type_en` | `type_en` | English type name |
-| `region` | `region` | Region name |
-| `area_sqkm` | `area_sqkm` | Area in square kilometres |
-| `latitude` | `lat` | Centroid latitude |
-| `longitude` | `lon` | Centroid longitude |
-
-### geo.roads
-Source: `ne_10m_roads`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `type` | `type` | Road classification |
-| `featurecla` | `feature_class` | Natural Earth feature class |
-| `length_km` | `length_km` | Pre-calculated length in km |
-| `expressway` | `expressway` | Whether the road is an expressway |
-| `toll` | `toll` | Whether the road is a toll road |
-| `level` | `level` | Road hierarchy (Federal, State, Regional) |
-| `localtype` | `local_type` | Local road type |
-| `sov_a3` | `country_code` | Sovereign country ISO code |
-| `continent` | `continent` | Continent name |
-
-### geo.rivers
-Source: `ne_10m_rivers_lake_centerlines`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `name` | `name` | River name |
-| `name_en` | `name_en` | English name |
-| `featurecla` | `type` | Feature class |
-
-### geo.railroads
-Source: `ne_10m_railroads`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `rwdb_rr_id` | `code` | Railroad identifier |
-| `category` | `category` | Railroad category |
-| `featurecla` | `type` | Feature class |
-| `electric` | `electric` | Electrified railroad |
-| `mult_track` | `multi_track` | Multiple tracks |
-| `continent` | `continent` | Continent name |
-
-### geo.places
-Source: `ne_10m_populated_places`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `NAME` | `name` | Place name |
-| `NAMEASCII` | `name_ascii` | ASCII name for search |
-| `ADM0_A3` | `country_code` | Country ISO code |
-| `ADM0NAME` | `country_name` | Country name |
-| `ADM1NAME` | `admin1_name` | Province/state name |
-| `ADM0CAP` | `is_capital` | National capital flag |
-| `FEATURECLA` | `type` | Place type |
-| `POP_MAX` | `population` | Maximum population estimate |
-| `LATITUDE` | `lat` | Latitude |
-| `LONGITUDE` | `lon` | Longitude |
-| `TIMEZONE` | `timezone` | Timezone |
-| `MEGACITY` | `is_megacity` | Megacity flag |
-| `WORLDCITY` | `is_world_city` | World city flag |
-
-### geo.buildings
-Source: Geofabrik OSM Bulgaria (`gis_osm_buildings_a_free_1.shp`)
-
-| Original | Renamed | Description |
-|---|---|---|
-| `name` | `name` | Building name |
-| `type` | `type` | Building type (residential, commercial, etc.) |
-| — | `country_code` | Added by loader: BGR |
-
-### geo.pois
-Source: Geofabrik OSM Bulgaria (`gis_osm_pois_a_free_1.shp`)
-
-| Original | Renamed | Description |
-|---|---|---|
-| `name` | `name` | POI name |
-| `fclass` | `type` | POI type (hospital, school, pharmacy, etc.) |
-| — | `country_code` | Added by loader: BGR |
-
-### geo.protected_areas
-Source: `ne_10m_parks_and_protected_lands_area`
-
-| Original | Renamed | Description |
-|---|---|---|
-| `name` | `name` | Area name |
-| `featurecla` | `feature_class` | Feature class |
-| `unit_type` | `type` | Protection type |
-| `nps_region` | `region` | NPS administrative region |
-
----
-
-## Planned Extensions
-
-- **Global Forest Watch integration** — forest coverage percentage and total forest area per boundary using the GFW API, relevant for EUDR compliance monitoring and carbon market verification (dMRV)
-- **Broader OSM coverage** — extend buildings and POIs beyond Bulgaria to other countries using Geofabrik extracts
-- **Digital Twins pilot** — 3D building visualization for selected urban areas
-- **WDPA global protected areas** — replace NPS-only protected areas dataset with the World Database on Protected Areas for global coverage
+# Deploy to Container Apps
+az containerapp create \
+  --name geo-services-api \
+  --resource-group geo-services-rg \
+  --image yourregistry.azurecr.io/geo-services-api \
+  --env-vars DB_HOST=... AZURE_OPENAI_API_KEY=...
+```
 
 ---
 
@@ -334,29 +314,44 @@ Source: `ne_10m_parks_and_protected_lands_area`
 ```
 geo-services-api/
 ├── app/
-│   ├── main.py                  # FastAPI entry point
+│   ├── main.py
 │   ├── routers/
 │   │   ├── boundaries.py
 │   │   ├── layers.py
 │   │   ├── statistics.py
 │   │   └── agent.py
 │   ├── repositories/
-│   │   └── geo_repository.py    # Database interface layer
+│   │   └── geo_repository.py
 │   ├── models/
-│   │   └── schemas.py           # Pydantic response models
+│   │   └── schemas.py
 │   ├── agent/
-│   │   ├── tools.py             # Tool definitions for GPT-4o
-│   │   └── agent.py             # Agent logic
+│   │   ├── tools.py
+│   │   └── agent.py
 │   └── db/
-│       └── database.py          # DB connection
+│       └── database.py
 ├── scripts/
-│   └── load_natural_earth.py    # Data loader
+│   └── load_data.py
+├── frontend/
+│   └── index.html
 ├── diagrams/
-│   └── architecture.png
+│   └── api_architecture.drawio
 ├── docs/
-│   └── agent_protocol.md        # Agent-to-Frontend protocol spec
+│   ├── database_justification.md
+│   └── agent_protocol.md
 ├── .env.example
+├── .gitignore
+├── .dockerignore
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Planned Extensions
+
+- **Global Forest Watch integration** — forest coverage and deforestation alerts per boundary, relevant for EUDR compliance monitoring
+- **Broader OSM coverage** — extend buildings and POIs beyond Bulgaria using Geofabrik extracts for additional countries
+- **Vector tile serving** — `ST_AsMVT` endpoints for high-performance rendering of large datasets
+- **World Database on Protected Areas (WDPA)** — global protected areas replacing the current NPS-only dataset
+- **SSE streaming** — Server-Sent Events for long-running agent queries with progress updates
