@@ -92,13 +92,15 @@ IMPORTANT workflow — always follow this order:
 5. For buildings use count_buildings tool. For POIs (hospitals, schools etc.) use count_pois.
 
 Examples:
-  "hospitals in Burgas province" → get_boundary_by_name(name="Burgas", level="province") → count_pois(poi_type="hospital")
-  "hospitals in Burgas municipality" → get_boundary_by_name(name="Burgas", level="municipality") → count_pois(poi_type="hospital")
-  "buildings in Veliko Tarnovo municipality" → get_boundary_by_name(name="Veliko Tarnovo", level="municipality") → count_buildings()
-  "highways in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → road_statistics()
+  "hospitals in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → count_pois(boundary_level="country", poi_type="hospital")
+  "hospitals in Burgas province" → get_boundary_by_name(name="Burgas", level="province") → count_pois(boundary_level="province", poi_type="hospital")
+  "hospitals in Burgas municipality" → get_boundary_by_name(name="Burgas", level="municipality") → count_pois(boundary_level="municipality", poi_type="hospital")
+  "buildings in Veliko Tarnovo municipality" → get_boundary_by_name(name="Veliko Tarnovo", level="municipality") → count_buildings(boundary_level="municipality")
+  "buildings in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → count_buildings(boundary_level="country")
+  "highways in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → road_statistics(boundary_level="country")
   "rivers in Veliko Tarnovo" → get_boundary_by_name(name="Veliko Tarnovo", level="province") → get_layer(layer="rivers")
   "show railroads in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → get_layer(layer="railroads")
-  "cities in Kenya" → get_boundary_by_name(name="Kenya", level="country") → get_layer(layer="places")
+  "cities in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → get_layer(layer="places")
 
 Tool selection guide:
   - "city of X" / "show me X city" / "zoom to X" → get_place (searches places table)

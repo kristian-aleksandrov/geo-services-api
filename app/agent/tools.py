@@ -283,9 +283,11 @@ TOOL_DEFINITIONS = [
             "name": "count_pois",
             "description": (
                 "Count points of interest within a boundary, grouped by type. "
-                "Use this ONLY for amenities and facilities like hospitals, schools, pharmacies, "
+                "Use this for amenities and facilities like hospitals, schools, pharmacies, "
                 "banks, restaurants, hotels — NOT for buildings or structures. "
-                "Only available for Bulgaria. Returns a total count and a breakdown by POI type."
+                "Works at country, province, and municipality level. "
+                "Only available for Bulgaria (OSM data). "
+                "Returns a total count and a breakdown by POI type."
             ),
             "parameters": {
                 "type": "object",
