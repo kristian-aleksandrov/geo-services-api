@@ -29,6 +29,30 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* ── MOBILE ── */
+  @media (max-width: 768px) {
+    :root { --panel: 100vw; }
+
+    .main {
+      flex-direction: column !important;
+    }
+
+    #map {
+      height: 45vh !important;
+      min-height: 200px;
+    }
+
+    .panel {
+      width: 100% !important;
+      height: 55vh !important;
+      border-left: none !important;
+      border-top: 1px solid var(--border);
+    }
+
+    header h1 { font-size: 12px; }
+    header .subtitle { display: none; }
+  }
+
   body {
     font-family: 'DM Sans', sans-serif;
     background: var(--bg);
@@ -523,7 +547,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const API = window.location.origin === 'null' ? 'http://127.0.0.1:8000' : window.location.origin.replace('/map','');
+const API = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' ? 'http://127.0.0.1:8000' : window.location.origin;
 
 // ── MAP SETUP ──────────────────────────────────────────────────────────────
 const map = L.map('map', {
@@ -649,7 +673,6 @@ async function sendMessage() {
       body:    JSON.stringify({ message: msg }),
     });
     const data = await res.json();
-    console.log('Agent response:', JSON.stringify(data, null, 2));
 
     thinkingWrap.remove();
     appendMessage('agent', data.answer, data.commands);
