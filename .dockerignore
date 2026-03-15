@@ -32,9 +32,6 @@ __pycache__/
 .vscode/
 .idea/
 
-# Frontend — served separately via GitHub Pages
-frontend/
-
 # Docs and scripts — not needed at runtime
 docs/
 diagrams/
