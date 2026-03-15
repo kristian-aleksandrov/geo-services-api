@@ -11,7 +11,7 @@ Leaflet frontend passes responses directly to L.geoJSON() to render layers.
 """
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -215,37 +215,6 @@ def get_pois(
         boundary_code=boundary.upper(),
         boundary_level=boundary_level,
         poi_type=poi_type,
-    )
-    return GeoJSONFeatureCollection(
-        type="FeatureCollection",
-        features=features,
-        count=len(features),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Protected Areas
-# ---------------------------------------------------------------------------
-
-@router.get("/protected_areas", response_model=GeoJSONFeatureCollection)
-def get_protected_areas(
-    boundary: str,
-    boundary_level: str = "country",
-    db: Session = Depends(get_db),
-):
-    """
-    Return protected areas intersecting a boundary as a GeoJSON FeatureCollection.
-
-    - **boundary**: ISO code of the boundary
-    - **boundary_level**: country or province (default: country)
-
-    Example:
-        GET /layers/protected_areas?boundary=KEN
-    """
-    repo = LayerRepository(db)
-    features = repo.get_protected_areas(
-        boundary_code=boundary.upper(),
-        boundary_level=boundary_level,
     )
     return GeoJSONFeatureCollection(
         type="FeatureCollection",

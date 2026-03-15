@@ -19,16 +19,18 @@ All data is retrieved by calling the API endpoints via execute_tool().
 import os
 import json
 import uuid
+from pathlib import Path
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+
+# Explicitly find and load .env from the project root
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from app.agent.tools import (
     TOOL_DEFINITIONS,
     execute_tool,
     frontend_config,
 )
-
-load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Azure OpenAI client
@@ -71,11 +73,45 @@ def get_openai_client() -> AzureOpenAI:
 SYSTEM_PROMPT = f"""
 You are a geospatial AI assistant for a World Bank geo services API.
 You have access to the following data for analysis:
-- Country and province boundaries (global, Natural Earth)
+- Country boundaries (global, Natural Earth — use ISO alpha-3 codes e.g. BGR, KEN, USA)
+- Province/region boundaries (global, World Bank Official Boundaries — use WB codes e.g. BGR001, BGR002)
+- Municipality boundaries (global, World Bank Official Boundaries — use WB codes e.g. BGR002001)
 - Roads, rivers, railroads, populated places (global, Natural Earth)
 - Buildings and points of interest — hospitals, schools, pharmacies,
-  banks, restaurants and more (Bulgaria, OpenStreetMap)
-- Protected areas (USA, Natural Earth)
+  banks, restaurants and more (Bulgaria only, OpenStreetMap via Geofabrik)
+
+IMPORTANT workflow — always follow this order:
+1. Determine the correct boundary level from the user's message:
+   - "country" / "Bulgaria" / nation names → level="country"
+   - "province" / "oblast" / "region" → level="province"
+   - "municipality" / "city" / "town" / "commune" → level="municipality"
+   - If ambiguous, prefer "municipality" for specific city names, "province" for region names
+2. Call get_boundary_by_name with the correct level to get the boundary code.
+3. Use the returned code AND level for all subsequent tool calls.
+4. Never guess or hardcode boundary codes — always look them up by name first.
+5. For buildings use count_buildings tool. For POIs (hospitals, schools etc.) use count_pois.
+
+Examples:
+  "hospitals in Burgas province" → get_boundary_by_name(name="Burgas", level="province") → count_pois(poi_type="hospital")
+  "hospitals in Burgas municipality" → get_boundary_by_name(name="Burgas", level="municipality") → count_pois(poi_type="hospital")
+  "buildings in Veliko Tarnovo municipality" → get_boundary_by_name(name="Veliko Tarnovo", level="municipality") → count_buildings()
+  "highways in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → road_statistics()
+  "rivers in Veliko Tarnovo" → get_boundary_by_name(name="Veliko Tarnovo", level="province") → get_layer(layer="rivers")
+  "show railroads in Bulgaria" → get_boundary_by_name(name="Bulgaria", level="country") → get_layer(layer="railroads")
+  "cities in Kenya" → get_boundary_by_name(name="Kenya", level="country") → get_layer(layer="places")
+
+Tool selection guide:
+  - hospitals/schools/pharmacies/amenities → count_pois
+  - building footprints/structures → count_buildings
+  - road LENGTH statistics → road_statistics
+  - rivers/railroads/places/roads to SHOW on map → get_layer
+  - road length AND show on map → road_statistics (map layer added automatically)
+
+IMPORTANT data coverage limitations:
+- Buildings and POIs (hospitals, schools etc.) are ONLY available for Bulgaria.
+  If the user asks about POIs in any other country, explain this clearly.
+- Roads, rivers, railroads and places are global datasets.
+- When a query returns no results, always explain why rather than staying silent.
 
 When answering questions:
 1. Use the available tools to retrieve accurate data — never guess or make up statistics.
@@ -110,26 +146,43 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
 
     Returns an ordered list of protocol commands. Only includes command
     types declared in frontend_config.capabilities.
-
-    Args:
-        tool_calls_log:  List of executed tool calls with their results
-
-    Returns:
-        List of command dicts following the agent protocol schema.
     """
-    commands = []
-    seen_boundaries = set()  # avoid duplicate zoom_to for same boundary
+    commands      = []
+    seen_zooms    = set()   # avoid duplicate zoom_to for same boundary
+    highlighted   = set()   # avoid duplicate highlight for same boundary
 
+    # --- First pass: build a name lookup from get_boundary_by_name results ---
+    # Maps boundary_code -> human name for use in labels
+    name_lookup = {}
+    for call in tool_calls_log:
+        if call["name"] == "get_boundary_by_name":
+            best = call["result"].get("best_match", {})
+            if best.get("code"):
+                name_lookup[best["code"]] = best.get("name", best["code"])
+
+    def label_for(code):
+        return name_lookup.get(code, code)
+
+    # --- Second pass: build commands ---
     for call in tool_calls_log:
         name   = call["name"]
         args   = call["args"]
         result = call["result"]
 
-        boundary_code  = args.get("boundary_code") or args.get("code")
-        boundary_level = args.get("boundary_level") or args.get("level", "country")
+        # Resolve boundary_code from args or from result (get_boundary_by_name)
+        if name == "get_boundary_by_name":
+            best           = result.get("best_match", {})
+            boundary_code  = best.get("code")
+            boundary_level = args.get("level", "province")
+        else:
+            boundary_code  = args.get("boundary_code") or args.get("code")
+            boundary_level = args.get("boundary_level") or args.get("level", "country")
 
-        # zoom_to — add once per unique boundary
-        if boundary_code and boundary_code not in seen_boundaries:
+        if not boundary_code:
+            continue
+
+        # zoom_to — once per unique boundary
+        if boundary_code not in seen_zooms:
             if frontend_config.supports("zoom_to"):
                 commands.append({
                     "action": "zoom_to",
@@ -138,25 +191,27 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
                         "boundary_level": boundary_level,
                     }
                 })
-            seen_boundaries.add(boundary_code)
+            seen_zooms.add(boundary_code)
 
-        # highlight_boundary — when we retrieved a boundary
-        if name == "get_boundary" and frontend_config.supports("highlight_boundary"):
-            commands.append({
-                "action": "highlight_boundary",
-                "params": {
-                    "boundary_code":  boundary_code,
-                    "boundary_level": boundary_level,
-                    "style": frontend_config.translate_style({
-                        "intent":  "highlight",
-                        "size":    2,
-                        "opacity": 0.15,
-                    })
-                }
-            })
+        # highlight_boundary — when boundary was looked up
+        if name in ("get_boundary", "get_boundary_by_name"):
+            if boundary_code not in highlighted and frontend_config.supports("highlight_boundary"):
+                commands.append({
+                    "action": "highlight_boundary",
+                    "params": {
+                        "boundary_code":  boundary_code,
+                        "boundary_level": boundary_level,
+                        "style": frontend_config.translate_style({
+                            "intent":  "highlight",
+                            "size":    2,
+                            "opacity": 0.15,
+                        })
+                    }
+                })
+                highlighted.add(boundary_code)
 
-        # add_layer — when we retrieved a vector layer
-        if name == "get_layer" and frontend_config.supports("add_layer"):
+        # add_layer — explicit get_layer call
+        if name == "get_layer":
             layer       = args.get("layer")
             filter_type = args.get("filter_type")
             filter_dict = {}
@@ -168,36 +223,111 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
                 elif layer == "buildings":
                     filter_dict["building_type"] = filter_type
 
-            commands.append({
-                "action": "add_layer",
-                "params": {
-                    "layer":          layer,
-                    "boundary_code":  boundary_code,
-                    "boundary_level": boundary_level,
-                    "filter":         filter_dict,
-                    "style": frontend_config.translate_style({
-                        "intent":  "neutral",
-                        "size":    5,
-                        "opacity": 0.8,
-                    })
-                }
-            })
+            # Layer-specific colors
+            layer_colors = {
+                "roads":      "#f0a500",
+                "rivers":     "#58a6ff",
+                "railroads":  "#bc8cff",
+                "places":     "#3fb950",
+                "pois":       "#f85149",
+                "buildings":  "#e3b341",
+            }
+            color = layer_colors.get(layer, "#8b949e")
 
-        # show_stat — when we counted POIs
-        if name == "count_pois" and frontend_config.supports("show_stat"):
+            if frontend_config.supports("add_layer"):
+                commands.append({
+                    "action": "add_layer",
+                    "params": {
+                        "layer":          layer,
+                        "boundary_code":  boundary_code,
+                        "boundary_level": boundary_level,
+                        "filter":         filter_dict,
+                        "style": frontend_config.translate_style({
+                            "color":   color,
+                            "size":    4,
+                            "opacity": 0.8,
+                        })
+                    }
+                })
+
+            # Show feature count as stat
+            feature_count = result.get("count", 0)
+            if feature_count and frontend_config.supports("show_stat"):
+                display_layer = filter_type or layer
+                commands.append({
+                    "action": "show_stat",
+                    "params": {
+                        "label":         f"{display_layer.capitalize()} in {label_for(boundary_code)}",
+                        "value":         feature_count,
+                        "unit":          "features",
+                        "boundary_code": boundary_code,
+                    }
+                })
+
+        # count_pois — show stat AND auto-add POI layer on map
+        if name == "count_pois":
             total    = result.get("total", 0)
-            poi_type = args.get("poi_type", "POI")
-            commands.append({
-                "action": "show_stat",
-                "params": {
-                    "label":         f"{poi_type.capitalize()}s in {boundary_code}",
-                    "value":         total,
-                    "unit":          "facilities",
-                    "boundary_code": boundary_code,
-                }
-            })
+            poi_type = args.get("poi_type")
+            display  = f"{poi_type.capitalize()}s" if poi_type else "POIs"
 
-        # show_stat + show_chart — when we got road statistics
+            if frontend_config.supports("show_stat"):
+                commands.append({
+                    "action": "show_stat",
+                    "params": {
+                        "label":         f"{display} in {label_for(boundary_code)}",
+                        "value":         total,
+                        "unit":          "facilities",
+                        "boundary_code": boundary_code,
+                    }
+                })
+
+            # Auto-add POI layer to map
+            if frontend_config.supports("add_layer") and poi_type:
+                commands.append({
+                    "action": "add_layer",
+                    "params": {
+                        "layer":          "pois",
+                        "boundary_code":  boundary_code,
+                        "boundary_level": boundary_level,
+                        "filter":         {"poi_type": poi_type},
+                        "style": frontend_config.translate_style({
+                            "intent":  "danger",
+                            "size":    6,
+                            "opacity": 0.9,
+                        })
+                    }
+                })
+
+        # count_buildings — show stat and add buildings layer
+        if name == "count_buildings":
+            total = result.get("total", 0)
+            if frontend_config.supports("show_stat"):
+                commands.append({
+                    "action": "show_stat",
+                    "params": {
+                        "label":         f"Buildings in {label_for(boundary_code)}",
+                        "value":         total,
+                        "unit":          "buildings",
+                        "boundary_code": boundary_code,
+                    }
+                })
+            if frontend_config.supports("add_layer"):
+                commands.append({
+                    "action": "add_layer",
+                    "params": {
+                        "layer":          "buildings",
+                        "boundary_code":  boundary_code,
+                        "boundary_level": boundary_level,
+                        "filter":         {},
+                        "style": frontend_config.translate_style({
+                            "color":   "#e3b341",
+                            "size":    4,
+                            "opacity": 0.7,
+                        })
+                    }
+                })
+
+        # road_statistics — show stat + chart
         if name == "road_statistics":
             total_km  = result.get("total_km", 0)
             breakdown = result.get("breakdown", [])
@@ -206,45 +336,57 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
                 commands.append({
                     "action": "show_stat",
                     "params": {
-                        "label":         f"Total roads in {boundary_code}",
+                        "label":         f"Total roads in {label_for(boundary_code)}",
                         "value":         total_km,
                         "unit":          "km",
                         "boundary_code": boundary_code,
                     }
                 })
-
             if frontend_config.supports("show_chart") and breakdown:
                 commands.append({
                     "action": "show_chart",
                     "params": {
                         "chart_type": "bar",
-                        "title":      f"Road length by type — {boundary_code}",
-                        "data": [
-                            {"label": row["type"], "value": row["total_km"]}
-                            for row in breakdown
-                        ],
-                        "unit": "km",
+                        "title":      f"Road length by type — {label_for(boundary_code)}",
+                        "data":       [{"label": r["type"], "value": r["total_km"]} for r in breakdown],
+                        "unit":       "km",
+                    }
+                })
+            # Auto-add roads layer
+            if frontend_config.supports("add_layer"):
+                commands.append({
+                    "action": "add_layer",
+                    "params": {
+                        "layer":          "roads",
+                        "boundary_code":  boundary_code,
+                        "boundary_level": boundary_level,
+                        "filter":         {},
+                        "style": frontend_config.translate_style({
+                            "color":   "#f0a500",
+                            "size":    2,
+                            "opacity": 0.8,
+                        })
                     }
                 })
 
-        # show_stat — when we got population statistics
+        # population_statistics
         if name == "population_statistics" and frontend_config.supports("show_stat"):
             commands.append({
                 "action": "show_stat",
                 "params": {
-                    "label":         f"Population in {boundary_code}",
+                    "label":         f"Population in {label_for(boundary_code)}",
                     "value":         result.get("total_population", 0),
                     "unit":          "people",
                     "boundary_code": boundary_code,
                 }
             })
 
-        # show_stat — when we calculated boundary area
+        # boundary_area
         if name == "boundary_area" and frontend_config.supports("show_stat"):
             commands.append({
                 "action": "show_stat",
                 "params": {
-                    "label":         f"Area of {boundary_code}",
+                    "label":         f"Area of {label_for(boundary_code)}",
                     "value":         result.get("area_km2", 0),
                     "unit":          "km²",
                     "boundary_code": boundary_code,

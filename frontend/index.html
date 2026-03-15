@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geo Services — World Bank</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg:         #0d1117;
+    --surface:    #161b22;
+    --surface2:   #21262d;
+    --border:     #30363d;
+    --accent:     #1f6feb;
+    --accent2:    #388bfd;
+    --green:      #3fb950;
+    --amber:      #d29922;
+    --red:        #f85149;
+    --text:       #e6edf3;
+    --text2:      #8b949e;
+    --text3:      #484f58;
+    --panel:      320px;
+    --radius:     8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+
+  .logo {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text);
+  }
+
+  header .subtitle {
+    font-size: 12px;
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+
+  .status-label {
+    font-size: 11px;
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── MAP ── */
+  #map {
+    flex: 1;
+    z-index: 1;
+  }
+
+  /* Override leaflet attribution */
+  .leaflet-control-attribution {
+    background: rgba(13,17,23,0.8) !important;
+    color: var(--text3) !important;
+    font-size: 10px !important;
+  }
+  .leaflet-control-attribution a { color: var(--text3) !important; }
+
+  /* ── SIDE PANEL ── */
+  .panel {
+    width: var(--panel);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  .panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text2);
+    cursor: pointer;
+    text-align: center;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .tab.active {
+    color: var(--accent2);
+    border-bottom-color: var(--accent2);
+  }
+
+  .tab-content { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .tab-content.active { display: flex; }
+
+  /* ── CHAT ── */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .message {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .message.user { align-items: flex-end; }
+  .message.agent { align-items: flex-start; }
+
+  .bubble {
+    max-width: 90%;
+    padding: 10px 13px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .message.user .bubble {
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+
+  .message.agent .bubble {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 3px;
+  }
+
+  .message.agent .bubble.thinking {
+    color: var(--text2);
+    font-style: italic;
+  }
+
+  .msg-label {
+    font-size: 10px;
+    color: var(--text3);
+    font-family: 'DM Mono', monospace;
+    padding: 0 4px;
+  }
+
+  /* ── COMMANDS BADGE ── */
+  .commands-badge {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .cmd-tag {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  /* ── CHAT INPUT ── */
+  .chat-input-area {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  .chat-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 9px 12px;
+    resize: none;
+    min-height: 38px;
+    max-height: 120px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .chat-input:focus { border-color: var(--accent); }
+  .chat-input::placeholder { color: var(--text3); }
+
+  .send-btn {
+    width: 38px; height: 38px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+    font-size: 16px;
+  }
+
+  .send-btn:hover { background: var(--accent2); }
+  .send-btn:disabled { background: var(--border); cursor: not-allowed; }
+
+  /* ── STATS TAB ── */
+  .stats-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .stat-unit {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ── LAYERS TAB ── */
+  .layers-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .layer-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .layer-item:hover { border-color: var(--accent); }
+  .layer-item.active { border-color: var(--accent2); }
+
+  .layer-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .layer-name {
+    font-size: 13px;
+    font-weight: 500;
+    flex: 1;
+  }
+
+  .layer-count {
+    font-size: 11px;
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .layer-remove {
+    font-size: 14px;
+    color: var(--text3);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+  }
+
+  .layer-remove:hover { color: var(--red); background: rgba(248,81,73,0.1); }
+
+  /* ── SUGGESTIONS ── */
+  .suggestions {
+    padding: 0 12px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .suggestion {
+    font-size: 11px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    padding: 4px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .suggestion:hover {
+    border-color: var(--accent);
+    color: var(--accent2);
+  }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text3);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .empty-icon { font-size: 32px; }
+  .empty-title { font-size: 13px; font-weight: 500; color: var(--text2); }
+  .empty-sub { font-size: 12px; line-height: 1.5; }
+
+  /* ── MAP CONTROLS ── */
+  .map-controls {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .map-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .map-btn:hover { border-color: var(--accent); color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">G</div>
+  <h1>Geo Services API</h1>
+  <span class="subtitle">/ World Bank Technical Assessment</span>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-label" id="statusLabel">connecting...</span>
+  </div>
+</header>
+
+<div class="main">
+  <div id="map"></div>
+
+  <div class="panel">
+    <div class="panel-tabs">
+      <div class="tab active" onclick="switchTab('chat')">Chat</div>
+      <div class="tab" onclick="switchTab('stats')">Stats</div>
+      <div class="tab" onclick="switchTab('layers')">Layers</div>
+    </div>
+
+    <!-- CHAT TAB -->
+    <div class="tab-content active" id="tab-chat">
+      <div class="messages" id="messages">
+        <div class="message agent">
+          <span class="msg-label">agent</span>
+          <div class="bubble">
+            Hello! I can answer questions about boundaries, roads, rivers, places, and points of interest. Try asking about hospitals, road length, or population.
+          </div>
+        </div>
+      </div>
+      <div class="suggestions" id="suggestions">
+        <div class="suggestion" onclick="sendSuggestion(this)">How many hospitals are in Burgas province?</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">Show road length in Bulgaria</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">What is the largest city in Bulgaria?</div>
+        <div class="suggestion" onclick="sendSuggestion(this)">Show me schools in Sofia province</div>
+      </div>
+      <div class="chat-input-area">
+        <div class="input-row">
+          <textarea
+            class="chat-input"
+            id="chatInput"
+            placeholder="Ask about any boundary, layer or statistic..."
+            rows="1"
+            onkeydown="handleKey(event)"
+            oninput="autoResize(this)"
+          ></textarea>
+          <button class="send-btn" id="sendBtn" onclick="sendMessage()">↑</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATS TAB -->
+    <div class="tab-content" id="tab-stats">
+      <div class="stats-content" id="statsContent">
+        <div class="empty-state">
+          <div class="empty-icon">📊</div>
+          <div class="empty-title">No statistics yet</div>
+          <div class="empty-sub">Ask the agent a question to see statistics appear here</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LAYERS TAB -->
+    <div class="tab-content" id="tab-layers">
+      <div class="layers-content" id="layersContent">
+        <div class="empty-state" id="layersEmpty">
+          <div class="empty-icon">🗺️</div>
+          <div class="empty-title">No layers added</div>
+          <div class="empty-sub">Ask the agent to show roads, rivers, or POIs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API = 'http://127.0.0.1:8000';
+
+// ── MAP SETUP ──────────────────────────────────────────────────────────────
+const map = L.map('map', {
+  center: [42.7, 25.5],
+  zoom: 7,
+  zoomControl: true,
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © Carto',
+  maxZoom: 19,
+}).addTo(map);
+
+// Fix map rendering after panel layout
+setTimeout(() => map.invalidateSize(), 100);
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+const activeLayers = {};     // name → { layer, color, count }
+let boundaryLayer  = null;
+let highlightLayer = null;
+let isThinking     = false;
+let statsEmpty     = true;
+
+// ── API HEALTH CHECK ───────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/`);
+    if (r.ok) {
+      document.getElementById('statusDot').style.background = 'var(--green)';
+      document.getElementById('statusDot').style.boxShadow = '0 0 6px var(--green)';
+      document.getElementById('statusLabel').textContent = 'api connected';
+    }
+  } catch {
+    document.getElementById('statusDot').style.background = 'var(--red)';
+    document.getElementById('statusDot').style.boxShadow = '0 0 6px var(--red)';
+    document.getElementById('statusLabel').textContent = 'api offline';
+  }
+}
+checkHealth();
+
+// ── TAB SWITCHING ──────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', ['chat','stats','layers'][i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+}
+
+// ── CHAT ───────────────────────────────────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function sendSuggestion(el) {
+  document.getElementById('chatInput').value = el.textContent;
+  sendMessage();
+}
+
+function appendMessage(role, text, commands) {
+  const msgs = document.getElementById('messages');
+
+  const wrap = document.createElement('div');
+  wrap.className = `message ${role}`;
+
+  const label = document.createElement('span');
+  label.className = 'msg-label';
+  label.textContent = role;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+
+  wrap.appendChild(label);
+  wrap.appendChild(bubble);
+
+  // Show command tags if any
+  if (commands && commands.length > 0) {
+    const badges = document.createElement('div');
+    badges.className = 'commands-badge';
+    commands.forEach(c => {
+      const tag = document.createElement('span');
+      tag.className = 'cmd-tag';
+      tag.textContent = c.action;
+      badges.appendChild(tag);
+    });
+    wrap.appendChild(badges);
+  }
+
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+  return bubble;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const msg   = input.value.trim();
+  if (!msg || isThinking) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  isThinking = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  appendMessage('user', msg);
+
+  // Thinking indicator
+  const thinkingWrap = document.createElement('div');
+  thinkingWrap.className = 'message agent';
+  thinkingWrap.innerHTML = '<span class="msg-label">agent</span><div class="bubble thinking">Thinking...</div>';
+  document.getElementById('messages').appendChild(thinkingWrap);
+  document.getElementById('messages').scrollTop = 99999;
+
+  try {
+    const res = await fetch(`${API}/agent/chat`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message: msg }),
+    });
+    const data = await res.json();
+
+    thinkingWrap.remove();
+    appendMessage('agent', data.answer, data.commands);
+
+    // Execute commands
+    if (data.commands) {
+      executeCommands(data.commands);
+    }
+
+    // Show stats if data available
+    if (data.data) {
+      renderStats(data.data);
+    }
+
+  } catch (err) {
+    thinkingWrap.remove();
+    appendMessage('agent', 'Sorry, I could not reach the API. Is uvicorn running?');
+  }
+
+  isThinking = false;
+  document.getElementById('sendBtn').disabled = false;
+}
+
+// ── COMMAND EXECUTOR ───────────────────────────────────────────────────────
+function executeCommands(commands) {
+  commands.forEach(cmd => {
+    switch (cmd.action) {
+
+      case 'zoom_to':
+        zoomToBoundary(cmd.params);
+        break;
+
+      case 'highlight_boundary':
+        highlightBoundary(cmd.params);
+        break;
+
+      case 'add_layer':
+        addLayer(cmd.params);
+        break;
+
+      case 'remove_layer':
+        removeLayer(cmd.params.layer);
+        break;
+
+      case 'show_stat':
+        addStatCard(cmd.params);
+        break;
+
+      case 'show_chart':
+        addChartCard(cmd.params);
+        break;
+
+      case 'clear_map':
+        clearAllLayers();
+        break;
+    }
+  });
+}
+
+// ── MAP COMMANDS ───────────────────────────────────────────────────────────
+async function zoomToBoundary(params) {
+  try {
+    const levelMap = {province: 'provinces', municipality: 'municipalities', country: 'countries'};
+    const level = levelMap[params.boundary_level] || 'countries';
+    const res   = await fetch(`${API}/boundaries/${level}/${params.boundary_code}`);
+    const data  = await res.json();
+    if (data.features && data.features.length > 0) {
+      const layer = L.geoJSON(data);
+      map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+    }
+  } catch(e) { console.error('zoom_to failed', e); }
+}
+
+async function highlightBoundary(params) {
+  if (highlightLayer) { map.removeLayer(highlightLayer); }
+  try {
+    const levelMap = {province: 'provinces', municipality: 'municipalities', country: 'countries'};
+    const level = levelMap[params.boundary_level] || 'countries';
+    const res   = await fetch(`${API}/boundaries/${level}/${params.boundary_code}`);
+    const data  = await res.json();
+    if (data.features && data.features.length > 0) {
+      highlightLayer = L.geoJSON(data, {
+        style: { color: '#388bfd', weight: 2, fillOpacity: 0.1, fillColor: '#388bfd' }
+      }).addTo(map);
+    }
+  } catch(e) { console.error('highlight failed', e); }
+}
+
+const LAYER_COLORS = {
+  roads:           '#f0a500',
+  rivers:          '#58a6ff',
+  railroads:       '#bc8cff',
+  places:          '#3fb950',
+  pois:            '#f85149',
+  buildings:       '#e3b341',
+  protected_areas: '#56d364',
+};
+
+async function addLayer(params) {
+  const name  = params.layer;
+  const color = LAYER_COLORS[name] || '#8b949e';
+
+  // Remove existing layer with same name
+  removeLayer(name);
+
+  try {
+    let url = `${API}/layers/${name}?boundary=${params.boundary_code}&boundary_level=${params.boundary_level || 'country'}`;
+    if (params.filter) {
+      Object.entries(params.filter).forEach(([k, v]) => { url += `&${k}=${v}`; });
+    }
+
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    if (!data.features || data.features.length === 0) return;
+
+    const leafletLayer = L.geoJSON(data, {
+      style:        () => ({ color, weight: 1.5, fillColor: color, fillOpacity: 0.5 }),
+      pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+        radius: 5, fillColor: color, color: '#fff',
+        weight: 1, opacity: 1, fillOpacity: 0.9
+      }),
+      onEachFeature: (feature, layer) => {
+        const props = feature.properties;
+        const label = props.name || props.type || name;
+        layer.bindPopup(`<b>${label}</b><br>${JSON.stringify(props, null, 2).replace(/[{}"]/g, '').slice(0, 200)}`);
+      }
+    }).addTo(map);
+
+    activeLayers[name] = { layer: leafletLayer, color, count: data.features.length };
+    renderLayersList();
+
+    // Switch to layers tab
+    switchTab('layers');
+
+  } catch(e) { console.error('add_layer failed', e); }
+}
+
+function removeLayer(name) {
+  if (activeLayers[name]) {
+    map.removeLayer(activeLayers[name].layer);
+    delete activeLayers[name];
+    renderLayersList();
+  }
+}
+
+function clearAllLayers() {
+  Object.keys(activeLayers).forEach(removeLayer);
+  if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
+}
+
+// ── LAYERS LIST ────────────────────────────────────────────────────────────
+function renderLayersList() {
+  const container = document.getElementById('layersContent');
+  const names     = Object.keys(activeLayers);
+
+  if (names.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" id="layersEmpty">
+        <div class="empty-icon">🗺️</div>
+        <div class="empty-title">No layers added</div>
+        <div class="empty-sub">Ask the agent to show roads, rivers, or POIs</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = names.map(name => `
+    <div class="layer-item active" id="layer-${name}">
+      <div class="layer-dot" style="background:${activeLayers[name].color}"></div>
+      <span class="layer-name">${name}</span>
+      <span class="layer-count">${activeLayers[name].count.toLocaleString()}</span>
+      <span class="layer-remove" onclick="removeLayer('${name}')">✕</span>
+    </div>
+  `).join('');
+}
+
+// ── STATS ──────────────────────────────────────────────────────────────────
+function addStatCard(params) {
+  const container = document.getElementById('statsContent');
+
+  // Clear empty state on first stat
+  if (statsEmpty) {
+    container.innerHTML = '';
+    statsEmpty = false;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'stat-card';
+  card.innerHTML = `
+    <div class="stat-label">${params.label}</div>
+    <div class="stat-value">${Number(params.value).toLocaleString()}</div>
+    ${params.unit ? `<div class="stat-unit">${params.unit}</div>` : ''}
+  `;
+  container.prepend(card);
+  switchTab('stats');
+}
+
+function addChartCard(params) {
+  const container = document.getElementById('statsContent');
+  if (statsEmpty) { container.innerHTML = ''; statsEmpty = false; }
+
+  const max = Math.max(...params.data.map(d => d.value));
+
+  const card = document.createElement('div');
+  card.className = 'stat-card';
+  card.innerHTML = `
+    <div class="stat-label">${params.title}</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+      ${params.data.map(d => `
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+            <span style="color:var(--text2)">${d.label}</span>
+            <span style="font-family:'DM Mono',monospace;color:var(--text)">${Number(d.value).toLocaleString()} ${params.unit || ''}</span>
+          </div>
+          <div style="height:4px;background:var(--border);border-radius:2px">
+            <div style="height:100%;width:${(d.value/max*100).toFixed(1)}%;background:var(--accent2);border-radius:2px"></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  container.prepend(card);
+  switchTab('stats');
+}
+
+function renderStats(data) {
+  // Render any raw data that wasn't already shown via show_stat commands
+}
+</script>
+</body>
+</html>

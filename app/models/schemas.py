@@ -150,14 +150,6 @@ class POIProperties(BaseModel):
     country_code: Optional[str]
 
 
-class ProtectedAreaProperties(BaseModel):
-    """Properties returned for each protected area feature."""
-    name: Optional[str]
-    feature_class: Optional[str]
-    type: Optional[str]
-    region: Optional[str]
-
-
 # ---------------------------------------------------------------------------
 # Statistics schemas
 # ---------------------------------------------------------------------------

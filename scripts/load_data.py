@@ -2,20 +2,33 @@
 Geo Services Data Loader
 ========================
 Downloads and loads the following datasets into PostGIS:
+
   1. Natural Earth 10m GeoPackage (global vector layers)
-  2. OpenStreetMap Bulgaria buildings via Geofabrik
-  3. OpenStreetMap Bulgaria POIs via Geofabrik (hospitals, schools, etc.)
+       → geo.countries      Country boundaries + population/economy data
+       → geo.roads          Global road network
+       → geo.rivers         Rivers and lake centerlines
+       → geo.railroads      Global railroads
+       → geo.places         Populated places
+
+  2. World Bank Official Boundaries (Admin 1, Admin 2)
+       → geo.provinces      Admin 1 regions  (authoritative WB boundaries)
+       → geo.municipalities Admin 2 municipalities (new — not in Natural Earth)
+
+       GeoPackages must be downloaded manually to data/ folder:
+         data/wb_admin1.gpkg
+         data/wb_admin2.gpkg
+       Download from: https://datacatalog.worldbank.org/search/dataset/0038272
+
+  3. OpenStreetMap Bulgaria via Geofabrik
+       → geo.buildings      Building footprints
+       → geo.pois           Points of interest (hospitals, schools etc.)
+       → geo.natural_areas  National parks and nature reserves
 
 Usage:
-    pip install geopandas sqlalchemy psycopg2-binary python-dotenv requests geoalchemy2
     python scripts/load_natural_earth.py
 
-Environment variables (set in .env file):
-    DB_HOST      - PostgreSQL host (default: localhost)
-    DB_PORT      - PostgreSQL port (default: 5433)
-    DB_NAME      - Database name (default: geo_services)
-    DB_USER      - PostgreSQL user (default: postgres)
-    DB_PASSWORD  - PostgreSQL password
+Environment variables (.env):
+    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 """
 
 import os
@@ -33,13 +46,19 @@ load_dotenv()
 
 # Natural Earth
 NE_URL  = "https://naciscdn.org/naturalearth/packages/natural_earth_vector.gpkg.zip"
-NE_ZIP  = "natural_earth_vector.gpkg.zip"
-NE_GPKG = "natural_earth_vector.gpkg"
+NE_ZIP  = "data/natural_earth_vector.gpkg.zip"
+NE_GPKG = "data/natural_earth_vector.gpkg"
+
+# World Bank Official Boundaries — downloaded automatically
+WB_ADMIN1_URL = "https://datacatalogfiles.worldbank.org/ddh-published/0038272/5/DR0095370/World%20Bank%20Official%20Boundaries%20(GeoPackage)/World%20Bank%20Official%20Boundaries%20-%20Admin%201.gpkg"
+WB_ADMIN2_URL = "https://datacatalogfiles.worldbank.org/ddh-published/0038272/5/DR0095370/World%20Bank%20Official%20Boundaries%20(GeoPackage)/World%20Bank%20Official%20Boundaries%20-%20Admin%202.gpkg"
+WB_ADMIN1 = "data/wb_admin1.gpkg"
+WB_ADMIN2 = "data/wb_admin2.gpkg"
 
 # Geofabrik — OSM Bulgaria
 GFB_URL       = "https://download.geofabrik.de/europe/bulgaria-latest-free.shp.zip"
-GFB_ZIP       = "bulgaria-latest-free.shp.zip"
-GFB_DIR       = "bulgaria-latest-free.shp"
+GFB_ZIP       = "data/bulgaria-latest-free.shp.zip"
+GFB_DIR       = "data/bulgaria-latest-free.shp"
 BUILDINGS_SHP = "gis_osm_buildings_a_free_1.shp"
 POIS_SHP      = "gis_osm_pois_a_free_1.shp"
 
@@ -48,7 +67,7 @@ DB_HOST     = os.getenv("DB_HOST", "localhost")
 DB_PORT     = os.getenv("DB_PORT", "5433")
 DB_NAME     = os.getenv("DB_NAME", "geo_services")
 DB_USER     = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "geopassword")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_SCHEMA   = "geo"
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -57,7 +76,7 @@ DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NA
 # Natural Earth layer definitions
 # ---------------------------------------------------------------------------
 
-LAYERS = {
+NE_LAYERS = {
 
     "ne_10m_admin_0_countries": {
         "table": "countries",
@@ -79,38 +98,6 @@ LAYERS = {
             "REGION_WB":  "region_wb",
             "TYPE":       "type",
             "SOVEREIGNT": "sovereignt",
-        },
-    },
-
-    "ne_10m_admin_1_states_provinces": {
-        "table": "provinces",
-        "if_exists": "replace",
-        "columns": [
-            "name", "iso_3166_2", "adm0_a3", "type", "type_en",
-            "region", "area_sqkm", "latitude", "longitude",
-            "geonunit", "geometry"
-        ],
-        "rename": {
-            "iso_3166_2": "code",
-            "adm0_a3":    "country_code",
-            "type_en":    "type_en",
-            "area_sqkm":  "area_sqkm",
-            "latitude":   "lat",
-            "longitude":  "lon",
-            "geonunit":   "geonunit",
-        },
-    },
-
-    "ne_10m_parks_and_protected_lands_area": {
-        "table": "protected_areas",
-        "if_exists": "replace",
-        "columns": [
-            "featurecla", "name", "nps_region", "unit_type", "geometry"
-        ],
-        "rename": {
-            "featurecla": "feature_class",
-            "nps_region": "region",
-            "unit_type":  "type",
         },
     },
 
@@ -180,7 +167,7 @@ LAYERS = {
 }
 
 # ---------------------------------------------------------------------------
-# Generic download helper
+# Download helpers
 # ---------------------------------------------------------------------------
 
 def download_file(url: str, dest_path: str, label: str):
@@ -203,12 +190,22 @@ def download_file(url: str, dest_path: str, label: str):
     print(f"  Download complete: {dest_path}")
 
 
-# ---------------------------------------------------------------------------
-# Natural Earth download + extract
-# ---------------------------------------------------------------------------
+def download_wb_boundaries():
+    """Download World Bank Official Boundaries GeoPackages."""
+    os.makedirs("data", exist_ok=True)
+    if not os.path.exists(WB_ADMIN1):
+        download_file(WB_ADMIN1_URL, WB_ADMIN1, "World Bank Admin 1 boundaries")
+    else:
+        print(f"  '{WB_ADMIN1}' already exists, skipping.")
+    if not os.path.exists(WB_ADMIN2):
+        download_file(WB_ADMIN2_URL, WB_ADMIN2, "World Bank Admin 2 boundaries")
+    else:
+        print(f"  '{WB_ADMIN2}' already exists, skipping.")
+
 
 def download_natural_earth():
     """Download and extract the Natural Earth GeoPackage."""
+    os.makedirs("data", exist_ok=True)
     if os.path.exists(NE_GPKG):
         print(f"  GeoPackage already exists at '{NE_GPKG}', skipping.")
         return
@@ -224,12 +221,9 @@ def download_natural_earth():
     print(f"  Extracted to '{NE_GPKG}'.")
 
 
-# ---------------------------------------------------------------------------
-# Geofabrik Bulgaria download + extract
-# ---------------------------------------------------------------------------
-
 def download_bulgaria_data():
     """Download and extract Geofabrik Bulgaria OSM shapefiles."""
+    os.makedirs("data", exist_ok=True)
     buildings_path = os.path.join(GFB_DIR, BUILDINGS_SHP)
     pois_path      = os.path.join(GFB_DIR, POIS_SHP)
 
@@ -250,7 +244,7 @@ def download_bulgaria_data():
             if any(os.path.basename(f).startswith(base) for base in shp_bases)
         ]
         if not target_files:
-            raise FileNotFoundError("Buildings or POIs shapefiles not found in zip.")
+            raise FileNotFoundError("Required shapefiles not found in zip.")
         for f in target_files:
             z.extract(f, GFB_DIR)
             extracted = os.path.join(GFB_DIR, f)
@@ -322,54 +316,141 @@ def load_natural_earth_layer(layer_name: str, config: dict, engine):
     write_to_postgis(gdf, config["table"], config.get("if_exists", "replace"), engine)
 
 
+def load_wb_provinces(engine):
+    """
+    Load World Bank Official Boundaries Admin 1 into geo.provinces.
+
+    Source: World Bank Data Catalog — Official Boundaries GeoPackage
+    File:   data/wb_admin1.gpkg
+
+    Columns used:
+        ISO_A3    → country_code   Parent country ISO alpha-3
+        WB_A3     → wb_code        World Bank country code
+        WB_REGION → region_wb      World Bank region
+        WB_STATUS → status         WB membership status
+        NAM_0     → country_name   Country name
+        NAM_1     → name           Province/region name
+        ADM1CD_c  → code           Admin 1 code
+    """
+    if not os.path.exists(WB_ADMIN1):
+        print(f"  ERROR: '{WB_ADMIN1}' not found. Run download_wb_boundaries() first.")
+        return
+
+    print(f"\n  Reading World Bank Admin 1 from '{WB_ADMIN1}'...")
+    gdf = gpd.read_file(WB_ADMIN1)
+
+    keep = ["ISO_A3", "WB_A3", "WB_REGION", "WB_STATUS",
+            "NAM_0", "NAM_1", "ADM1CD_c", "geometry"]
+    existing = [c for c in keep if c in gdf.columns or c == "geometry"]
+    gdf = gdf[existing].copy()
+
+    gdf = gdf.rename(columns={
+        "ISO_A3":   "country_code",
+        "WB_A3":    "wb_code",
+        "WB_REGION":"region_wb",
+        "WB_STATUS":"status",
+        "NAM_0":    "country_name",
+        "NAM_1":    "name",
+        "ADM1CD_c": "code",
+    })
+
+    # Drop rows with no geometry or no code
+    gdf = gdf[gdf.geometry.notna()]
+    gdf = gdf[gdf["code"].notna()]
+
+    write_to_postgis(gdf, "provinces", "replace", engine)
+
+
+def load_wb_municipalities(engine):
+    """
+    Load World Bank Official Boundaries Admin 2 into geo.municipalities.
+
+    Source: World Bank Data Catalog — Official Boundaries GeoPackage
+    File:   data/wb_admin2.gpkg
+
+    Columns used:
+        ISO_A3    → country_code   Parent country ISO alpha-3
+        WB_A3     → wb_code        World Bank country code
+        WB_REGION → region_wb      World Bank region
+        WB_STATUS → status         WB membership status
+        NAM_0     → country_name   Country name
+        NAM_1     → adm1_name      Admin 1 name
+        NAM_2     → name           Municipality name
+        ADM1CD_c  → adm1_code      Admin 1 code (parent province)
+        ADM2CD_c  → code           Admin 2 code (municipality)
+    """
+    if not os.path.exists(WB_ADMIN2):
+        print(f"  ERROR: '{WB_ADMIN2}' not found. Run download_wb_boundaries() first.")
+        return
+
+    print(f"\n  Reading World Bank Admin 2 from '{WB_ADMIN2}'...")
+    gdf = gpd.read_file(WB_ADMIN2)
+
+    keep = ["ISO_A3", "WB_A3", "WB_REGION", "WB_STATUS",
+            "NAM_0", "NAM_1", "NAM_2", "ADM1CD_c", "ADM2CD_c", "geometry"]
+    existing = [c for c in keep if c in gdf.columns or c == "geometry"]
+    gdf = gdf[existing].copy()
+
+    gdf = gdf.rename(columns={
+        "ISO_A3":   "country_code",
+        "WB_A3":    "wb_code",
+        "WB_REGION":"region_wb",
+        "WB_STATUS":"status",
+        "NAM_0":    "country_name",
+        "NAM_1":    "adm1_name",
+        "NAM_2":    "name",
+        "ADM1CD_c": "adm1_code",
+        "ADM2CD_c": "code",
+    })
+
+    # Drop rows with no geometry or no code
+    gdf = gdf[gdf.geometry.notna()]
+    gdf = gdf[gdf["code"].notna()]
+
+    write_to_postgis(gdf, "municipalities", "replace", engine)
+
+
 def load_bulgaria_buildings(engine):
-    """Read OSM Bulgaria buildings shapefile and load to PostGIS."""
+    """Load OSM Bulgaria building footprints into geo.buildings."""
     path = os.path.join(GFB_DIR, BUILDINGS_SHP)
     print(f"\n  Reading Bulgaria buildings from '{path}'...")
     gdf  = gpd.read_file(path)
-
-    keep    = [c for c in ["name", "type", "geometry"] if c in gdf.columns]
-    missing = [c for c in ["name", "type"] if c not in gdf.columns]
-    if missing:
-        print(f"    Warning — columns not found, skipped: {missing}")
-
-    gdf = gdf[keep].copy()
+    keep = [c for c in ["name", "type", "geometry"] if c in gdf.columns]
+    gdf  = gdf[keep].copy()
     gdf["country_code"] = "BGR"
-
     write_to_postgis(gdf, "buildings", "replace", engine)
 
 
 def load_bulgaria_pois(engine):
-    """Read OSM Bulgaria POIs shapefile and load to PostGIS."""
+    """Load OSM Bulgaria points of interest into geo.pois."""
     path = os.path.join(GFB_DIR, POIS_SHP)
     print(f"\n  Reading Bulgaria POIs from '{path}'...")
     gdf  = gpd.read_file(path)
-
-    keep    = [c for c in ["name", "fclass", "geometry"] if c in gdf.columns]
-    missing = [c for c in ["name", "fclass"] if c not in gdf.columns]
-    if missing:
-        print(f"    Warning — columns not found, skipped: {missing}")
-
-    gdf = gdf[keep].copy()
-    gdf = gdf.rename(columns={"fclass": "type"})
+    keep = [c for c in ["name", "fclass", "geometry"] if c in gdf.columns]
+    gdf  = gdf[keep].copy()
+    gdf  = gdf.rename(columns={"fclass": "type"})
     gdf["country_code"] = "BGR"
-
     write_to_postgis(gdf, "pois", "replace", engine)
 
-
-# ---------------------------------------------------------------------------
-# Index creation
-# ---------------------------------------------------------------------------
 
 def create_spatial_indexes(engine):
     """Create GIST indexes on all geometry columns."""
     tables = [
-        "countries", "provinces", "roads", "rivers", "railroads",
-        "places", "protected_areas", "buildings", "pois"
+        "countries", "provinces", "municipalities",
+        "roads", "rivers", "railroads",
+        "places", "buildings", "pois"
     ]
     print()
     with engine.connect() as conn:
         for table in tables:
+            # Check table exists before indexing
+            exists = conn.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = :schema AND table_name = :table"
+            ), {"schema": DB_SCHEMA, "table": table}).fetchone()
+            if not exists:
+                print(f"  Skipping spatial index on {table} — table not found.")
+                continue
             idx = f"idx_{table}_geom"
             conn.execute(text(
                 f"CREATE INDEX IF NOT EXISTS {idx} "
@@ -384,26 +465,28 @@ def create_attribute_indexes(engine):
     Skips silently if the column does not exist in the table.
     """
     indexes = [
-        ("countries",  "code"),
-        ("countries",  "continent"),
-        ("countries",  "region_wb"),
-        ("provinces",  "code"),
-        ("provinces",  "country_code"),
-        ("places",          "country_code"),
-        ("places",          "population"),
-        ("roads",           "country_code"),
-        ("roads",           "type"),
-        ("roads",           "level"),
-        ("railroads",       "continent"),
-        ("protected_areas", "type"),
-        ("buildings",       "type"),
-        ("buildings",       "country_code"),
-        ("pois",            "type"),
-        ("pois",            "country_code"),
+        ("countries",      "code"),
+        ("countries",      "continent"),
+        ("countries",      "region_wb"),
+        ("provinces",      "code"),
+        ("provinces",      "country_code"),
+        ("provinces",      "region_wb"),
+        ("municipalities", "code"),
+        ("municipalities", "country_code"),
+        ("municipalities", "adm1_code"),
+        ("places",         "country_code"),
+        ("places",         "population"),
+        ("roads",          "country_code"),
+        ("roads",          "type"),
+        ("roads",          "level"),
+        ("railroads",      "continent"),
+        ("buildings",      "type"),
+        ("buildings",      "country_code"),
+        ("pois",           "type"),
+        ("pois",           "country_code"),
     ]
     with engine.connect() as conn:
         for table, col in indexes:
-            # Check column exists before creating index
             exists = conn.execute(text(
                 "SELECT 1 FROM information_schema.columns "
                 "WHERE table_schema = :schema "
@@ -431,40 +514,66 @@ def main():
     print("  Geo Services Data Loader")
     print("=" * 60)
 
-    print("\n[1/6] Downloading datasets...")
+    print("\n[1/7] Downloading datasets...")
+    download_wb_boundaries()
     download_natural_earth()
     download_bulgaria_data()
 
-    print("\n[2/6] Connecting to PostGIS...")
+    print("\n[2/7] Connecting to PostGIS...")
     engine = get_engine()
     ensure_postgis(engine)
     print(f"  Connected: {DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-    print("\n[3/6] Loading Natural Earth layers...")
-    for layer_name, config in LAYERS.items():
+    print("\n[3/7] Loading Natural Earth layers (countries, roads, rivers, railroads, places)...")
+    for layer_name, config in NE_LAYERS.items():
         try:
             load_natural_earth_layer(layer_name, config, engine)
         except Exception as e:
             print(f"  ERROR loading '{layer_name}': {e}")
 
-    print("\n[4/6] Loading Bulgaria buildings (OSM via Geofabrik)...")
+    print("\n[4/7] Loading World Bank Official Boundaries — Admin 1 provinces...")
+    try:
+        load_wb_provinces(engine)
+    except Exception as e:
+        print(f"  ERROR loading WB provinces: {e}")
+
+    print("\n[5/7] Loading World Bank Official Boundaries — Admin 2 municipalities...")
+    try:
+        load_wb_municipalities(engine)
+    except Exception as e:
+        print(f"  ERROR loading WB municipalities: {e}")
+
+    print("\n[6/7] Loading Bulgaria buildings (OSM via Geofabrik)...")
     try:
         load_bulgaria_buildings(engine)
     except Exception as e:
         print(f"  ERROR loading Bulgaria buildings: {e}")
 
-    print("\n[5/6] Loading Bulgaria POIs (OSM via Geofabrik)...")
+    print("\n[7/7] Loading Bulgaria POIs (OSM via Geofabrik)...")
     try:
         load_bulgaria_pois(engine)
     except Exception as e:
         print(f"  ERROR loading Bulgaria POIs: {e}")
 
-    print("\n[6/6] Creating indexes...")
+
+    print("\nCreating spatial indexes...")
     create_spatial_indexes(engine)
+
+    print("\nCreating attribute indexes...")
     create_attribute_indexes(engine)
 
     print("\n" + "=" * 60)
     print("  Database ready.")
+    print("  Tables loaded:")
+    print("    geo.countries      — Natural Earth Admin 0")
+    print("    geo.provinces      — World Bank Official Boundaries Admin 1")
+    print("    geo.municipalities — World Bank Official Boundaries Admin 2")
+    print("    geo.roads          — Natural Earth 10m")
+    print("    geo.rivers         — Natural Earth 10m")
+    print("    geo.railroads      — Natural Earth 10m")
+    print("    geo.places         — Natural Earth 10m")
+    print("    geo.buildings      — OSM Bulgaria (Geofabrik)")
+    print("    geo.pois           — OSM Bulgaria (Geofabrik)")
     print("=" * 60)
 
 

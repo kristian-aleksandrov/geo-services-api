@@ -81,20 +81,26 @@ def get_country_by_code(
 @router.get("/provinces", response_model=GeoJSONFeatureCollection)
 def get_provinces(
     country_code: Optional[str] = None,
+    name: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """
     Return province/state boundaries as a GeoJSON FeatureCollection.
 
     Optional filters:
-    - **country_code**: ISO 3166-1 alpha-3 code of the parent country (e.g. BGR)
+    - **country_code**: ISO alpha-3 code of the parent country (e.g. BGR)
+    - **name**: Search by province name (e.g. Burgas, Sofia)
 
     Example:
         GET /boundaries/provinces?country_code=BGR
-        GET /boundaries/provinces?country_code=KEN
+        GET /boundaries/provinces?name=Burgas
+        GET /boundaries/provinces?country_code=BGR&name=Burgas
     """
     repo = BoundaryRepository(db)
-    features = repo.get_provinces(country_code=country_code.upper() if country_code else None)
+    features = repo.get_provinces(
+        country_code=country_code.upper() if country_code else None,
+        name=name,
+    )
     return GeoJSONFeatureCollection(
         type="FeatureCollection",
         features=features,
@@ -118,6 +124,65 @@ def get_province_by_code(
     feature = repo.get_province_by_code(code=code.upper())
     if not feature:
         raise HTTPException(status_code=404, detail=f"Province '{code}' not found.")
+    return GeoJSONFeatureCollection(
+        type="FeatureCollection",
+        features=[feature],
+        count=1,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Municipalities
+# ---------------------------------------------------------------------------
+
+@router.get("/municipalities", response_model=GeoJSONFeatureCollection)
+def get_municipalities(
+    country_code: Optional[str] = None,
+    adm1_code: Optional[str] = None,
+    name: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Return municipality boundaries as a GeoJSON FeatureCollection.
+
+    Optional filters:
+    - **country_code**: ISO alpha-3 code of the parent country (e.g. BGR)
+    - **adm1_code**: Parent province WB code (e.g. BGR002)
+    - **name**: Search by municipality name
+
+    Example:
+        GET /boundaries/municipalities?country_code=BGR
+        GET /boundaries/municipalities?adm1_code=BGR002
+        GET /boundaries/municipalities?name=Burgas
+    """
+    repo = BoundaryRepository(db)
+    features = repo.get_municipalities(
+        country_code=country_code.upper() if country_code else None,
+        adm1_code=adm1_code,
+        name=name,
+    )
+    return GeoJSONFeatureCollection(
+        type="FeatureCollection",
+        features=features,
+        count=len(features),
+    )
+
+
+@router.get("/municipalities/{code}", response_model=GeoJSONFeatureCollection)
+def get_municipality_by_code(
+    code: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Return a single municipality by WB Admin 2 code.
+
+    Example:
+        GET /boundaries/municipalities/BGR002002
+    """
+    repo = BoundaryRepository(db)
+    feature = repo.get_municipality_by_code(code=code.upper())
+    if not feature:
+        raise HTTPException(status_code=404, detail=f"Municipality '{code}' not found.")
     return GeoJSONFeatureCollection(
         type="FeatureCollection",
         features=[feature],

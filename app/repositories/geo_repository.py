@@ -130,12 +130,14 @@ class BoundaryRepository(GeoRepository):
     def get_provinces(
         self,
         country_code: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> list[dict]:
         """
         Return province/state boundaries as GeoJSON features.
 
         Args:
             country_code:  Filter by parent country ISO code (e.g. 'BGR')
+            name:          Optional name search filter (e.g. 'Burgas')
 
         Returns:
             List of GeoJSON feature dicts.
@@ -145,12 +147,15 @@ class BoundaryRepository(GeoRepository):
         if country_code:
             filters.append("country_code = :country_code")
             params["country_code"] = country_code
+        if name:
+            filters.append("LOWER(name) LIKE LOWER(:name)")
+            params["name"] = f"%{name}%"
 
         where = ("WHERE " + " AND ".join(filters)) if filters else ""
 
         sql = text(f"""
-            SELECT name, code, country_code, type, type_en,
-                   region, area_sqkm, lat, lon,
+            SELECT name, code, country_code, country_name,
+                   region_wb, status, wb_code,
                    ST_AsGeoJSON(geometry)::json AS geometry
             FROM geo.provinces
             {where}
@@ -164,12 +169,10 @@ class BoundaryRepository(GeoRepository):
                     "name":         row["name"],
                     "code":         row["code"],
                     "country_code": row["country_code"],
-                    "type":         row["type"],
-                    "type_en":      row["type_en"],
-                    "region":       row["region"],
-                    "area_sqkm":    row["area_sqkm"],
-                    "lat":          row["lat"],
-                    "lon":          row["lon"],
+                    "country_name": row["country_name"],
+                    "region_wb":    row["region_wb"],
+                    "status":       row["status"],
+                    "wb_code":      row["wb_code"],
                 }
             }
             for row in rows
@@ -186,8 +189,8 @@ class BoundaryRepository(GeoRepository):
             GeoJSON feature dict or None if not found.
         """
         sql = text("""
-            SELECT name, code, country_code, type, type_en,
-                   region, area_sqkm, lat, lon,
+            SELECT name, code, country_code, country_name,
+                   region_wb, status, wb_code,
                    ST_AsGeoJSON(geometry)::json AS geometry
             FROM geo.provinces
             WHERE code = :code
@@ -202,14 +205,89 @@ class BoundaryRepository(GeoRepository):
                 "name":         row["name"],
                 "code":         row["code"],
                 "country_code": row["country_code"],
-                "type":         row["type"],
-                "type_en":      row["type_en"],
-                "region":       row["region"],
-                "area_sqkm":    row["area_sqkm"],
-                "lat":          row["lat"],
-                "lon":          row["lon"],
+                "country_name": row["country_name"],
+                "region_wb":    row["region_wb"],
+                "status":       row["status"],
+                "wb_code":      row["wb_code"],
             }
         }
+
+    def get_municipalities(
+        self,
+        country_code: Optional[str] = None,
+        adm1_code: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> list[dict]:
+        """Return municipality boundaries as GeoJSON features."""
+        filters = []
+        params  = {}
+        if country_code:
+            filters.append("country_code = :country_code")
+            params["country_code"] = country_code
+        if adm1_code:
+            filters.append("adm1_code = :adm1_code")
+            params["adm1_code"] = adm1_code
+        if name:
+            filters.append("LOWER(name) LIKE LOWER(:name)")
+            params["name"] = f"%{name}%"
+
+        where = ("WHERE " + " AND ".join(filters)) if filters else ""
+
+        sql = text(f"""
+            SELECT name, code, country_code, country_name,
+                   adm1_name, adm1_code, region_wb, status, wb_code,
+                   ST_AsGeoJSON(geometry)::json AS geometry
+            FROM geo.municipalities
+            {where}
+        """)
+        rows = self.db.execute(sql, params).mappings().fetchall()
+        return [
+            {
+                "type": "Feature",
+                "geometry": row["geometry"],
+                "properties": {
+                    "name":         row["name"],
+                    "code":         row["code"],
+                    "country_code": row["country_code"],
+                    "country_name": row["country_name"],
+                    "adm1_name":    row["adm1_name"],
+                    "adm1_code":    row["adm1_code"],
+                    "region_wb":    row["region_wb"],
+                    "status":       row["status"],
+                    "wb_code":      row["wb_code"],
+                }
+            }
+            for row in rows
+        ]
+
+    def get_municipality_by_code(self, code: str) -> Optional[dict]:
+        """Return a single municipality by WB Admin 2 code."""
+        sql = text("""
+            SELECT name, code, country_code, country_name,
+                   adm1_name, adm1_code, region_wb, status, wb_code,
+                   ST_AsGeoJSON(geometry)::json AS geometry
+            FROM geo.municipalities
+            WHERE code = :code
+        """)
+        row = self.db.execute(sql, {"code": code}).mappings().fetchone()
+        if not row:
+            return None
+        return {
+            "type": "Feature",
+            "geometry": row["geometry"],
+            "properties": {
+                "name":         row["name"],
+                "code":         row["code"],
+                "country_code": row["country_code"],
+                "country_name": row["country_name"],
+                "adm1_name":    row["adm1_name"],
+                "adm1_code":    row["adm1_code"],
+                "region_wb":    row["region_wb"],
+                "status":       row["status"],
+                "wb_code":      row["wb_code"],
+            }
+        }
+
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +329,7 @@ class LayerRepository(GeoRepository):
             WHERE c.code = :boundary_code
             AND   r.type = :road_type   -- if provided
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
-        col    = "code"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
 
         filters = []
@@ -262,12 +339,12 @@ class LayerRepository(GeoRepository):
         extra = ("AND " + " AND ".join(filters)) if filters else ""
 
         sql = text(f"""
-            SELECT r.name, r.type, r.feature_class, r.length_km,
+            SELECT r.type, r.feature_class, r.length_km,
                    r.expressway, r.toll, r.level, r.local_type, r.country_code,
                    ST_AsGeoJSON(r.geometry)::json AS geometry
             FROM geo.roads r
             JOIN geo.{table} b ON ST_Intersects(r.geometry, b.geometry)
-            WHERE b.{col} = :boundary_code
+            WHERE b.code = :boundary_code
             {extra}
         """)
         rows = self.db.execute(sql, params).mappings().fetchall()
@@ -276,7 +353,6 @@ class LayerRepository(GeoRepository):
                 "type": "Feature",
                 "geometry": row["geometry"],
                 "properties": {
-                    "name":          row["name"],
                     "type":          row["type"],
                     "feature_class": row["feature_class"],
                     "length_km":     row["length_km"],
@@ -312,7 +388,7 @@ class LayerRepository(GeoRepository):
             JOIN geo.countries c ON ST_Intersects(r.geometry, c.geometry)
             WHERE c.code = :boundary_code
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT r.name, r.name_en, r.type,
@@ -353,7 +429,7 @@ class LayerRepository(GeoRepository):
             JOIN geo.countries c ON ST_Intersects(r.geometry, c.geometry)
             WHERE c.code = :boundary_code
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT r.code, r.type, r.category, r.electric, r.multi_track,
@@ -403,7 +479,7 @@ class LayerRepository(GeoRepository):
             WHERE c.code = :boundary_code
             AND   p.population >= :min_population   -- if provided
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         filters = []
         if min_population:
@@ -471,7 +547,7 @@ class LayerRepository(GeoRepository):
             WHERE p.code = :boundary_code
             AND   b.type = :building_type   -- if provided
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         filters = []
         if building_type:
@@ -522,7 +598,7 @@ class LayerRepository(GeoRepository):
             WHERE pr.code = :boundary_code
             AND   p.type = :poi_type   -- if provided
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         filters = []
         if poi_type:
@@ -547,53 +623,6 @@ class LayerRepository(GeoRepository):
             }
             for row in rows
         ]
-
-    def get_protected_areas(
-        self,
-        boundary_code: str,
-        boundary_level: str = "country",
-    ) -> list[dict]:
-        """
-        Return protected areas intersecting a boundary.
-
-        Args:
-            boundary_code:   ISO code of the boundary
-            boundary_level:  'country' or 'province'
-
-        Returns:
-            List of GeoJSON feature dicts.
-
-        SQL pattern:
-            SELECT pa.name, pa.type, pa.region,
-                   ST_AsGeoJSON(pa.geometry)::json AS geometry
-            FROM geo.protected_areas pa
-            JOIN geo.countries c ON ST_Intersects(pa.geometry, c.geometry)
-            WHERE c.code = :boundary_code
-        """
-        table  = "countries" if boundary_level == "country" else "provinces"
-        params = {"boundary_code": boundary_code}
-        sql = text(f"""
-            SELECT pa.name, pa.feature_class, pa.type, pa.region,
-                   ST_AsGeoJSON(pa.geometry)::json AS geometry
-            FROM geo.protected_areas pa
-            JOIN geo.{table} b ON ST_Intersects(pa.geometry, b.geometry)
-            WHERE b.code = :boundary_code
-        """)
-        rows = self.db.execute(sql, params).mappings().fetchall()
-        return [
-            {
-                "type": "Feature",
-                "geometry": row["geometry"],
-                "properties": {
-                    "name":          row["name"],
-                    "feature_class": row["feature_class"],
-                    "type":          row["type"],
-                    "region":        row["region"],
-                }
-            }
-            for row in rows
-        ]
-
 
 # ---------------------------------------------------------------------------
 # Statistics repository
@@ -632,7 +661,7 @@ class StatisticsRepository(GeoRepository):
             GROUP BY p.type
             ORDER BY count DESC
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         filters = []
         if poi_type:
@@ -675,7 +704,7 @@ class StatisticsRepository(GeoRepository):
             GROUP BY b.type
             ORDER BY count DESC
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT b.type, COUNT(*) AS count
@@ -722,7 +751,7 @@ class StatisticsRepository(GeoRepository):
             GROUP BY r.type
             ORDER BY total_km DESC
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT r.type,
@@ -765,7 +794,7 @@ class StatisticsRepository(GeoRepository):
             JOIN geo.countries c ON ST_Intersects(p.geometry, c.geometry)
             WHERE c.code = :boundary_code
         """
-        table  = "countries" if boundary_level == "country" else "provinces"
+        table  = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(boundary_level, "provinces")
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT COUNT(*)        AS place_count,
@@ -804,7 +833,7 @@ class StatisticsRepository(GeoRepository):
             FROM geo.countries
             WHERE code = :code
         """
-        table = "countries" if level == "country" else "provinces"
+        table = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(level, "provinces")
         sql = text(f"""
             SELECT ROUND(
                 (ST_Area(geometry::geography) / 1000000)::numeric, 2

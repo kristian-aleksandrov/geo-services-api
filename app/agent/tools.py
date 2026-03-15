@@ -17,11 +17,11 @@ This module defines:
 
 import os
 import json
-import httpx
+from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # ---------------------------------------------------------------------------
 # 1. Style Adapter Registry (Level 1)
@@ -167,6 +167,37 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_boundary_by_name",
+            "description": (
+                "Search for a boundary (country, province, or municipality) by name. "
+                "Use this when the user mentions a place name like 'Burgas', 'Kenya', 'Sofia'. "
+                "Returns the boundary code and metadata needed for subsequent queries. "
+                "Always call this first when the user mentions a place name."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the boundary to search for (e.g. 'Burgas', 'Kenya', 'Sofia')"
+                    },
+                    "level": {
+                        "type": "string",
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level to search in"
+                    },
+                    "country_code": {
+                        "type": "string",
+                        "description": "Optional ISO alpha-3 country code to narrow the search (e.g. BGR for Bulgaria)"
+                    }
+                },
+                "required": ["name", "level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_boundary",
             "description": (
                 "Retrieve a boundary geometry (country or province) by ISO code. "
@@ -195,12 +226,39 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "count_buildings",
+            "description": (
+                "Count building footprints within a boundary, grouped by building type. "
+                "Use this when the user asks how many buildings, houses, residential buildings, "
+                "commercial buildings, or structures are in a specific area. "
+                "Only available for Bulgaria. Returns total count and breakdown by building type."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "boundary_code": {
+                        "type": "string",
+                        "description": "WB or ISO code of the boundary"
+                    },
+                    "boundary_level": {
+                        "type": "string",
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
+                    }
+                },
+                "required": ["boundary_code", "boundary_level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "count_pois",
             "description": (
                 "Count points of interest within a boundary, grouped by type. "
-                "Use this when the user asks how many hospitals, schools, pharmacies, "
-                "banks, or any other type of facility or amenity are in a specific area. "
-                "Returns a total count and a breakdown by POI type."
+                "Use this ONLY for amenities and facilities like hospitals, schools, pharmacies, "
+                "banks, restaurants, hotels — NOT for buildings or structures. "
+                "Only available for Bulgaria. Returns a total count and a breakdown by POI type."
             ),
             "parameters": {
                 "type": "object",
@@ -211,8 +269,8 @@ TOOL_DEFINITIONS = [
                     },
                     "boundary_level": {
                         "type": "string",
-                        "enum": ["country", "province"],
-                        "description": "Whether the boundary is a country or province"
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
                     },
                     "poi_type": {
                         "type": "string",
@@ -248,8 +306,8 @@ TOOL_DEFINITIONS = [
                     },
                     "boundary_level": {
                         "type": "string",
-                        "enum": ["country", "province"],
-                        "description": "Whether the boundary is a country or province"
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
                     }
                 },
                 "required": ["boundary_code", "boundary_level"]
@@ -276,8 +334,8 @@ TOOL_DEFINITIONS = [
                     },
                     "boundary_level": {
                         "type": "string",
-                        "enum": ["country", "province"],
-                        "description": "Whether the boundary is a country or province"
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
                     }
                 },
                 "required": ["boundary_code", "boundary_level"]
@@ -302,8 +360,8 @@ TOOL_DEFINITIONS = [
                     },
                     "boundary_level": {
                         "type": "string",
-                        "enum": ["country", "province"],
-                        "description": "Whether the boundary is a country or province"
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
                     }
                 },
                 "required": ["boundary_code", "boundary_level"]
@@ -327,7 +385,7 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "enum": [
                             "roads", "rivers", "railroads", "places",
-                            "buildings", "pois", "protected_areas"
+                            "buildings", "pois"
                         ],
                         "description": "The layer to retrieve"
                     },
@@ -337,8 +395,8 @@ TOOL_DEFINITIONS = [
                     },
                     "boundary_level": {
                         "type": "string",
-                        "enum": ["country", "province"],
-                        "description": "Whether the boundary is a country or province"
+                        "enum": ["country", "province", "municipality"],
+                        "description": "Administrative level: country, province, or municipality"
                     },
                     "filter_type": {
                         "type": "string",
@@ -367,84 +425,205 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def execute_tool(name: str, args: dict) -> dict:
     """
-    Execute a tool call by calling the corresponding API endpoint.
+    Execute a tool call by querying PostGIS directly.
 
-    The agent never accesses the database directly — it always goes
-    through the API layer. This enforces the same validation and
-    business logic as external callers.
+    All tools query the database directly rather than calling the API via HTTP.
+    The agent runs inside the same server process — calling itself via HTTP
+    causes a connection abort on the same thread.
 
     Args:
         name:  Tool name matching a key in TOOL_DEFINITIONS
         args:  Arguments dict as provided by GPT-4o
 
     Returns:
-        Dict result from the API endpoint.
-
-    Raises:
-        ValueError if the tool name is not recognised.
+        Dict result suitable for passing back to GPT-4o as a tool result.
     """
-    with httpx.Client() as client:
+    from sqlalchemy import create_engine, text as sa_text
+    from sqlalchemy.orm import sessionmaker
 
-        if name == "get_boundary":
-            level = args["level"]
-            code = args["code"]
+    db_url = (
+        f"postgresql+psycopg2://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+        f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+    )
+    engine = create_engine(db_url)
+    db = sessionmaker(bind=engine)()
+
+    try:
+        if name == "get_boundary_by_name":
+            search_name  = args["name"]
+            level        = args["level"]
+            country_code = args.get("country_code")
+            table = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(level, "provinces")
+
+            # countries table uses 'code' for ISO alpha-3, no country_code column
+            # provinces and municipalities have 'country_code' column
+            params_db = {"name": f"%{search_name}%"}
+            country_filter = ""
+            if country_code and level != "country":
+                country_filter = "AND country_code = :country_code"
+                params_db["country_code"] = country_code
+
+            # Select correct columns per table
             if level == "country":
-                url = f"{API_BASE_URL}/boundaries/countries/{code}"
+                select_cols = "code, name, code AS country_code"
             else:
-                url = f"{API_BASE_URL}/boundaries/provinces/{code}"
-            response = client.get(url)
-            return response.json()
+                select_cols = "code, name, country_code"
+
+            rows = db.execute(sa_text(f"""
+                SELECT {select_cols}
+                FROM geo.{table}
+                WHERE LOWER(name) LIKE LOWER(:name)
+                {country_filter}
+                ORDER BY name
+                LIMIT 5
+            """), params_db).mappings().fetchall()
+            if rows:
+                results = [{"code": r["code"], "name": r["name"], "country_code": r["country_code"], "level": level} for r in rows]
+                return {"found": True, "level": level, "results": results, "best_match": results[0]}
+            return {"found": False, "level": level, "search_name": search_name}
+
+        elif name == "get_boundary":
+            level = args["level"]
+            code  = args["code"]
+            table = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(level, "provinces")
+            row = db.execute(
+                sa_text(f"SELECT name, code FROM geo.{table} WHERE code = :code"),
+                {"code": code}
+            ).mappings().fetchone()
+            if row:
+                return {"found": True, "code": code, "level": level, "name": row["name"]}
+            return {"found": False, "code": code, "level": level}
+
+        elif name == "count_buildings":
+            bc  = args["boundary_code"]
+            bl  = args["boundary_level"]
+            tbl = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+            rows = db.execute(sa_text(f"""
+                SELECT b.type, COUNT(*) AS count
+                FROM geo.buildings b
+                JOIN geo.{tbl} bnd ON ST_Intersects(b.geometry, bnd.geometry)
+                WHERE bnd.code = :boundary_code
+                GROUP BY b.type ORDER BY count DESC
+            """), {"boundary_code": bc}).mappings().fetchall()
+            bd = [{"type": r["type"], "count": r["count"]} for r in rows]
+            return {"boundary_code": bc, "total": sum(r["count"] for r in bd), "breakdown": bd}
 
         elif name == "count_pois":
-            params = {
-                "boundary": args["boundary_code"],
-                "boundary_level": args["boundary_level"],
-            }
-            if "poi_type" in args:
-                params["poi_type"] = args["poi_type"]
-            response = client.get(f"{API_BASE_URL}/statistics/pois", params=params)
-            return response.json()
+            bc  = args["boundary_code"]
+            bl  = args["boundary_level"]
+            pt  = args.get("poi_type")
+            tbl = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+            pdb = {"boundary_code": bc}
+            ext = "AND p.type = :poi_type" if pt else ""
+            if pt:
+                pdb["poi_type"] = pt
+            rows = db.execute(sa_text(f"""
+                SELECT p.type, COUNT(*) AS count
+                FROM geo.pois p
+                JOIN geo.{tbl} b ON ST_Intersects(p.geometry, b.geometry)
+                WHERE b.code = :boundary_code {ext}
+                GROUP BY p.type ORDER BY count DESC
+            """), pdb).mappings().fetchall()
+            bd = [{"type": r["type"], "count": r["count"]} for r in rows]
+            return {"boundary_code": bc, "total": sum(r["count"] for r in bd), "breakdown": bd}
 
         elif name == "road_statistics":
-            params = {
-                "boundary": args["boundary_code"],
-                "boundary_level": args["boundary_level"],
-            }
-            response = client.get(f"{API_BASE_URL}/statistics/roads", params=params)
-            return response.json()
+            bc  = args["boundary_code"]
+            bl  = args["boundary_level"]
+            tbl = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+            rows = db.execute(sa_text(f"""
+                SELECT r.type,
+                       ROUND(SUM(ST_Length(
+                           ST_Intersection(r.geometry, b.geometry)::geography
+                       ) / 1000)::numeric, 2) AS total_km
+                FROM geo.roads r
+                JOIN geo.{tbl} b ON ST_Intersects(r.geometry, b.geometry)
+                WHERE b.code = :boundary_code
+                GROUP BY r.type ORDER BY total_km DESC
+            """), {"boundary_code": bc}).mappings().fetchall()
+            bd = [{"type": r["type"], "total_km": float(r["total_km"])} for r in rows]
+            return {"boundary_code": bc, "total_km": round(sum(r["total_km"] for r in bd), 2), "breakdown": bd}
 
         elif name == "population_statistics":
-            params = {
-                "boundary": args["boundary_code"],
-                "boundary_level": args["boundary_level"],
+            bc  = args["boundary_code"]
+            bl  = args["boundary_level"]
+            tbl = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+            row = db.execute(sa_text(f"""
+                SELECT COUNT(*) AS place_count,
+                       SUM(p.population) AS total_population,
+                       (SELECT p2.name FROM geo.places p2
+                        JOIN geo.{tbl} b2 ON ST_Intersects(p2.geometry, b2.geometry)
+                        WHERE b2.code = :boundary_code
+                        ORDER BY p2.population DESC NULLS LAST LIMIT 1) AS largest_city
+                FROM geo.places p
+                JOIN geo.{tbl} b ON ST_Intersects(p.geometry, b.geometry)
+                WHERE b.code = :boundary_code
+            """), {"boundary_code": bc}).mappings().fetchone()
+            return {
+                "boundary_code":    bc,
+                "place_count":      int(row["place_count"] or 0),
+                "total_population": int(row["total_population"] or 0),
+                "largest_city":     row["largest_city"],
             }
-            response = client.get(f"{API_BASE_URL}/statistics/places", params=params)
-            return response.json()
 
         elif name == "boundary_area":
-            params = {
-                "boundary": args["boundary_code"],
-                "boundary_level": args["boundary_level"],
-            }
-            response = client.get(f"{API_BASE_URL}/statistics/area", params=params)
-            return response.json()
+            bc  = args["boundary_code"]
+            bl  = args["boundary_level"]
+            tbl = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+            row = db.execute(sa_text(f"""
+                SELECT ROUND((ST_Area(geometry::geography) / 1000000)::numeric, 2) AS area_km2
+                FROM geo.{tbl} WHERE code = :code
+            """), {"code": bc}).mappings().fetchone()
+            return {"boundary_code": bc, "area_km2": float(row["area_km2"]) if row else 0.0}
 
         elif name == "get_layer":
-            layer = args["layer"]
-            params = {
-                "boundary": args["boundary_code"],
-                "boundary_level": args["boundary_level"],
+            # Return metadata + feature count.
+            # The frontend fetches actual GeoJSON directly from /layers/{layer}.
+            layer       = args["layer"]
+            bc          = args["boundary_code"]
+            bl          = args["boundary_level"]
+            ft          = args.get("filter_type")
+            tbl         = {"country": "countries", "province": "provinces", "municipality": "municipalities"}.get(bl, "provinces")
+
+            # Map layer name to geo table
+            layer_table = {
+                "roads": "roads", "rivers": "rivers", "railroads": "railroads",
+                "places": "places", "buildings": "buildings", "pois": "pois"
+            }.get(layer, layer)
+
+            # Count features in boundary
+            type_col = "fclass" if layer == "pois" else "type"
+            filter_clause = ""
+            count_params = {"boundary_code": bc}
+            if ft and layer in ("pois", "roads", "buildings"):
+                col = {"pois": "type", "roads": "type", "buildings": "type"}.get(layer, "type")
+                filter_clause = f"AND l.{col} = :filter_type"
+                count_params["filter_type"] = ft
+
+            try:
+                count_row = db.execute(sa_text(f"""
+                    SELECT COUNT(*) AS count
+                    FROM geo.{layer_table} l
+                    JOIN geo.{tbl} b ON ST_Intersects(l.geometry, b.geometry)
+                    WHERE b.code = :boundary_code
+                    {filter_clause}
+                """), count_params).mappings().fetchone()
+                count = int(count_row["count"]) if count_row else 0
+            except Exception:
+                count = 0
+
+            return {
+                "layer":          layer,
+                "boundary_code":  bc,
+                "boundary_level": bl,
+                "filter_type":    ft,
+                "count":          count,
+                "status":         "ready",
             }
-            if "filter_type" in args:
-                # map to correct query param per layer
-                if layer == "pois":
-                    params["poi_type"] = args["filter_type"]
-                elif layer == "roads":
-                    params["road_type"] = args["filter_type"]
-                elif layer == "buildings":
-                    params["building_type"] = args["filter_type"]
-            response = client.get(f"{API_BASE_URL}/layers/{layer}", params=params)
-            return response.json()
 
         else:
             raise ValueError(f"Unknown tool: {name}")
+
+    finally:
+        db.close()
+        engine.dispose()
