@@ -101,6 +101,9 @@ Examples:
   "cities in Kenya" → get_boundary_by_name(name="Kenya", level="country") → get_layer(layer="places")
 
 Tool selection guide:
+  - "city of X" / "show me X city" / "zoom to X" → get_place (searches places table)
+  - "X province" / "X oblast" / "X region" → get_boundary_by_name with level="province"
+  - "X municipality" / "X commune" → get_boundary_by_name with level="municipality"
   - hospitals/schools/pharmacies/amenities → count_pois
   - building footprints/structures → count_buildings
   - road LENGTH statistics → road_statistics
@@ -112,6 +115,14 @@ IMPORTANT data coverage limitations:
   If the user asks about POIs in any other country, explain this clearly.
 - Roads, rivers, railroads and places are global datasets.
 - When a query returns no results, always explain why rather than staying silent.
+
+IMPORTANT Bulgarian boundary disambiguation:
+- "Sofia city" or "city of Sofia" or "Sofia capital" → use BGR022 (Sofia-city province)
+- "Sofia province" or "Sofia region" → use BGR021 (Sofia province surrounding the capital)
+- "Burgas city" or "city of Burgas" → search at municipality level
+- When a place name is ambiguous between province and municipality, prefer municipality
+  unless the user explicitly says "province" or "oblast" or "region"
+- Never ask the user to clarify between Sofia province and Sofia-city — default to BGR022
 
 When answering questions:
 1. Use the available tools to retrieve accurate data — never guess or make up statistics.
@@ -128,6 +139,9 @@ Only include commands from this list in your response.
 
 Always respond in clear, concise English suitable for a professional audience.
 After retrieving data, provide a direct answer followed by relevant context.
+NEVER include JSON, code blocks, or technical data in your answer text.
+NEVER embed map commands or coordinates in the answer — the protocol handles that automatically.
+Keep answers conversational and factual. Example: "Burgas is a city in Bulgaria with a population of 195,966."
 """
 
 
@@ -150,6 +164,10 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
     commands      = []
     seen_zooms    = set()   # avoid duplicate zoom_to for same boundary
     highlighted   = set()   # avoid duplicate highlight for same boundary
+
+    # Always clear the map at the start of each agent response
+    if frontend_config.supports("clear_map") and tool_calls_log:
+        commands.append({"action": "clear_map", "params": {}})
 
     # --- First pass: build a name lookup from get_boundary_by_name results ---
     # Maps boundary_code -> human name for use in labels
@@ -178,6 +196,45 @@ def build_commands(tool_calls_log: list[dict]) -> list[dict]:
             boundary_code  = args.get("boundary_code") or args.get("code")
             boundary_level = args.get("boundary_level") or args.get("level", "country")
 
+        # get_place — zoom to city coordinates (no boundary_code needed)
+        if name == "get_place":
+            best = result.get("best_match", {})
+            if best:
+                if frontend_config.supports("zoom_to"):
+                    commands.append({
+                        "action": "zoom_to",
+                        "params": {
+                            "lat":  best.get("lat"),
+                            "lon":  best.get("lon"),
+                            "zoom": 12,
+                        }
+                    })
+                # Highlight the municipality boundary as city footprint approximation
+                if best.get("municipality_code") and frontend_config.supports("highlight_boundary"):
+                    commands.append({
+                        "action": "highlight_boundary",
+                        "params": {
+                            "boundary_code":  best["municipality_code"],
+                            "boundary_level": "municipality",
+                            "style": frontend_config.translate_style({
+                                "intent":  "highlight",
+                                "size":    2,
+                                "opacity": 0.2,
+                            })
+                        }
+                    })
+                if frontend_config.supports("show_stat") and best.get("population"):
+                    commands.append({
+                        "action": "show_stat",
+                        "params": {
+                            "label": f"{best['name']} population",
+                            "value": best["population"],
+                            "unit":  "people",
+                        }
+                    })
+            continue
+
+        # Skip remaining commands if no boundary code
         if not boundary_code:
             continue
 

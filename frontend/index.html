@@ -649,9 +649,15 @@ async function sendMessage() {
       body:    JSON.stringify({ message: msg }),
     });
     const data = await res.json();
+    console.log('Agent response:', JSON.stringify(data, null, 2));
 
     thinkingWrap.remove();
     appendMessage('agent', data.answer, data.commands);
+
+    // Clear stats panel on each new query
+    const statsContainer = document.getElementById('statsContent');
+    statsContainer.innerHTML = '';
+    statsEmpty = true;
 
     // Execute commands
     if (data.commands) {
@@ -711,6 +717,12 @@ function executeCommands(commands) {
 // ── MAP COMMANDS ───────────────────────────────────────────────────────────
 async function zoomToBoundary(params) {
   try {
+    // Coordinate-based zoom (for city points from get_place)
+    if (params.lat && params.lon) {
+      map.setView([params.lat, params.lon], params.zoom || 12);
+      return;
+    }
+    // Boundary-based zoom
     const levelMap = {province: 'provinces', municipality: 'municipalities', country: 'countries'};
     const level = levelMap[params.boundary_level] || 'countries';
     const res   = await fetch(`${API}/boundaries/${level}/${params.boundary_code}`);

@@ -167,6 +167,33 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_place",
+            "description": (
+                "Search for a city, town or populated place by name in the places table. "
+                "Use this when the user says 'city of X', 'town of X', or asks about a "
+                "specific urban settlement rather than an administrative boundary. "
+                "Returns the place location, population and type. "
+                "Use this for: show me Sofia city, zoom to Plovdiv, where is Varna."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the city or town (e.g. Sofia, Plovdiv, Varna)"
+                    },
+                    "country_code": {
+                        "type": "string",
+                        "description": "Optional ISO alpha-3 country code (e.g. BGR)"
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_boundary_by_name",
             "description": (
                 "Search for a boundary (country, province, or municipality) by name. "
@@ -449,7 +476,43 @@ def execute_tool(name: str, args: dict) -> dict:
     db = sessionmaker(bind=engine)()
 
     try:
-        if name == "get_boundary_by_name":
+        if name == "get_place":
+            search_name  = args["name"]
+            country_code = args.get("country_code")
+            params_db    = {"name": f"%{search_name}%"}
+            country_filter = ""
+            if country_code:
+                country_filter = "AND country_code = :country_code"
+                params_db["country_code"] = country_code
+            rows = db.execute(sa_text(f"""
+                SELECT name, name_ascii, country_code, country_name,
+                       type, population, is_capital, lat, lon
+                FROM geo.places
+                WHERE LOWER(name) LIKE LOWER(:name)
+                {country_filter}
+                ORDER BY population DESC NULLS LAST
+                LIMIT 5
+            """), params_db).mappings().fetchall()
+            if rows:
+                results = [dict(r) for r in rows]
+                best = results[0]
+                # Try to find matching municipality boundary
+                if best.get("lat") and best.get("lon"):
+                    muni_row = db.execute(sa_text("""
+                        SELECT code, name FROM geo.municipalities
+                        WHERE ST_Within(
+                            ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+                            geometry
+                        )
+                        LIMIT 1
+                    """), {"lat": best["lat"], "lon": best["lon"]}).mappings().fetchone()
+                    if muni_row:
+                        best["municipality_code"] = muni_row["code"]
+                        best["municipality_name"] = muni_row["name"]
+                return {"found": True, "results": results, "best_match": best}
+            return {"found": False, "search_name": search_name}
+
+        elif name == "get_boundary_by_name":
             search_name  = args["name"]
             level        = args["level"]
             country_code = args.get("country_code")

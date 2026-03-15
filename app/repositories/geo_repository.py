@@ -341,7 +341,7 @@ class LayerRepository(GeoRepository):
         sql = text(f"""
             SELECT r.type, r.feature_class, r.length_km,
                    r.expressway, r.toll, r.level, r.local_type, r.country_code,
-                   ST_AsGeoJSON(r.geometry)::json AS geometry
+                   ST_AsGeoJSON(ST_Intersection(r.geometry, b.geometry))::json AS geometry
             FROM geo.roads r
             JOIN geo.{table} b ON ST_Intersects(r.geometry, b.geometry)
             WHERE b.code = :boundary_code
@@ -392,7 +392,7 @@ class LayerRepository(GeoRepository):
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT r.name, r.name_en, r.type,
-                   ST_AsGeoJSON(r.geometry)::json AS geometry
+                   ST_AsGeoJSON(ST_Intersection(r.geometry, b.geometry))::json AS geometry
             FROM geo.rivers r
             JOIN geo.{table} b ON ST_Intersects(r.geometry, b.geometry)
             WHERE b.code = :boundary_code
@@ -433,7 +433,7 @@ class LayerRepository(GeoRepository):
         params = {"boundary_code": boundary_code}
         sql = text(f"""
             SELECT r.code, r.type, r.category, r.electric, r.multi_track,
-                   ST_AsGeoJSON(r.geometry)::json AS geometry
+                   ST_AsGeoJSON(ST_Intersection(r.geometry, b.geometry))::json AS geometry
             FROM geo.railroads r
             JOIN geo.{table} b ON ST_Intersects(r.geometry, b.geometry)
             WHERE b.code = :boundary_code
