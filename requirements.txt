@@ -10,3 +10,4 @@ shapely
 openai
 pydantic
 httpx
+aiofiles

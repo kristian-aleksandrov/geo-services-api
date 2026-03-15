@@ -523,7 +523,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const API = 'http://127.0.0.1:8000';
+const API = window.location.origin === 'null' ? 'http://127.0.0.1:8000' : window.location.origin.replace('/map','');
 
 // ── MAP SETUP ──────────────────────────────────────────────────────────────
 const map = L.map('map', {

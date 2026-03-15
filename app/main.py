@@ -9,6 +9,8 @@ Run locally:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.routers import boundaries, layers, statistics, agent
 
@@ -36,6 +38,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Frontend — serve static files
+# ---------------------------------------------------------------------------
+import os
+if os.path.exists("frontend"):
+    app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+
+@app.get("/map", include_in_schema=False)
+def serve_frontend():
+    return FileResponse("frontend/index.html")
 
 # ---------------------------------------------------------------------------
 # Routers
