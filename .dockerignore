@@ -1,0 +1,45 @@
+# =============================================================================
+# .dockerignore — exclude from Docker build context
+# =============================================================================
+
+# Environment — use Azure Container Apps secrets instead
+.env
+
+# Data files — loaded separately, not baked into image
+data/
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.zip
+
+# Development
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Frontend — served separately via GitHub Pages
+frontend/
+
+# Docs and scripts — not needed at runtime
+docs/
+diagrams/
+scripts/
+
+# OS
+.DS_Store
+Thumbs.db
