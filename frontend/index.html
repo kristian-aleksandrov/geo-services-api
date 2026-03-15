@@ -38,15 +38,44 @@
     }
 
     #map {
-      height: 45vh !important;
+      height: 40vh !important;
+      height: 40dvh !important;
       min-height: 200px;
+      flex-shrink: 0;
     }
 
     .panel {
       width: 100% !important;
-      height: 55vh !important;
+      height: 60vh !important;
+      height: 60dvh !important;
+      flex-shrink: 0;
       border-left: none !important;
       border-top: 1px solid var(--border);
+      display: flex !important;
+      flex-direction: column !important;
+    }
+
+    .tab-content.active {
+      display: flex !important;
+      flex-direction: column !important;
+      flex: 1 !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+    }
+
+    .messages {
+      flex: 1 !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+    }
+
+    .chat-input-area {
+      flex-shrink: 0 !important;
+      padding: 8px !important;
+    }
+
+    .suggestions {
+      display: none !important;
     }
 
     header h1 { font-size: 12px; }
@@ -58,6 +87,7 @@
     background: var(--bg);
     color: var(--text);
     height: 100vh;
+    height: 100dvh; /* dynamic viewport — accounts for Android browser UI bars */
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -258,6 +288,10 @@
     padding: 12px;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    z-index: 10;
   }
 
   .input-row {
