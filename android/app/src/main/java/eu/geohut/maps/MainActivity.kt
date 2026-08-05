@@ -24,7 +24,6 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,7 +31,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorView: View
     private lateinit var errorText: TextView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
@@ -77,11 +75,9 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         errorView = findViewById(R.id.errorView)
         errorText = findViewById(R.id.errorText)
-        swipeRefresh = findViewById(R.id.swipeRefresh)
 
         configureWebView()
 
-        swipeRefresh.setOnRefreshListener { webView.reload() }
         findViewById<Button>(R.id.retryButton).setOnClickListener { loadHome() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -139,7 +135,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                swipeRefresh.isRefreshing = false
             }
 
             override fun onReceivedError(
@@ -236,7 +231,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showError(message: String = getString(R.string.error_load_failed)) {
         progressBar.visibility = View.GONE
-        swipeRefresh.isRefreshing = false
         webView.visibility = View.GONE
         errorText.text = message
         errorView.visibility = View.VISIBLE
