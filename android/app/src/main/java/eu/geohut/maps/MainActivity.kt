@@ -25,6 +25,15 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
+private const val HIDE_TOPBAR_JS = """
+(function() {
+    var css = '.ngw-pyramid-layout-header, .ngw-pyramid-layout-header-stub { display: none !important; }';
+    var style = document.createElement('style');
+    style.appendChild(document.createTextNode(css));
+    (document.head || document.documentElement).appendChild(style);
+})();
+"""
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
@@ -130,11 +139,13 @@ class MainActivity : AppCompatActivity() {
                 errorView.visibility = View.GONE
                 webView.visibility = View.VISIBLE
                 progressBar.visibility = View.VISIBLE
+                view.evaluateJavascript(HIDE_TOPBAR_JS, null)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                view.evaluateJavascript(HIDE_TOPBAR_JS, null)
             }
 
             override fun onReceivedError(
