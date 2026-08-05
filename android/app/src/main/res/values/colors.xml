@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="geohut_primary">#1B6E5B</color>
+    <color name="geohut_primary_dark">#124B3D</color>
+    <color name="geohut_accent">#2FA98C</color>
+    <color name="background_light">#FFFFFF</color>
+    <color name="background_dark">#121212</color>
+</resources>

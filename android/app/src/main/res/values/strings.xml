@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GeoHut Maps</string>
+    <string name="base_url" translatable="false">https://maps.geohut.eu/</string>
+    <string name="error_no_connection">No internet connection. Check your network and try again.</string>
+    <string name="error_load_failed">Couldn\'t load GeoHut Maps.</string>
+    <string name="action_retry">Retry</string>
+</resources>
